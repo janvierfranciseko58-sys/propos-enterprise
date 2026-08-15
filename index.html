@@ -1,0 +1,1821 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<title>PropOS Enterprise</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone@7.23.9/babel.min.js"></script>
+<script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: #F7F4EE; }
+  .navitem:hover { background: rgba(201,168,76,0.1); }
+  table.leases { border-collapse: collapse; width: 100%; }
+  table.leases th { text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8A8577; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #E7E0D2; }
+  table.leases td { padding: 13px 12px; border-bottom: 1px solid #F0ECE2; font-size: 13.5px; }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useMemo } = React;
+
+// ============================================================================
+// CONFIGURATION — remplace par tes valeurs Supabase (Project Settings > API)
+// ============================================================================
+const SUPABASE_URL = "https://vdpvejwdexclcuwfiout.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_edQZanOgXvZzl4hsqFRc9w_Q9S3WKqP";
+// ============================================================================
+
+const NAVY = "#0F3460", NAVY_DEEP = "#0A2647", GOLD = "#C9A84C";
+const IVORY = "#F7F4EE", INK = "#23262E", SAGE = "#5C8A6B", CORAL = "#C4664F", SAND = "#E7E0D2";
+
+const roles = { direction: "Direction", finance: "Finance", gestion_locative: "Gestion Locative", maintenance: "Maintenance" };
+const PERMISSIONS = {
+  direction: ["overview", "buildings", "portfolio", "tenants", "finance", "maintenance", "hr"],
+  finance: ["overview", "buildings", "portfolio", "tenants", "finance"],
+  gestion_locative: ["overview", "buildings", "portfolio", "tenants", "maintenance"],
+  maintenance: ["overview", "maintenance"],
+};
+const NAV = [
+  { key: "overview", label: "Tableau de bord" },
+  { key: "buildings", label: "Immeubles" },
+  { key: "portfolio", label: "Portefeuille" },
+  { key: "tenants", label: "Baux & Locataires" },
+  { key: "finance", label: "Finance" },
+  { key: "maintenance", label: "Maintenance" },
+  { key: "hr", label: "Ressources Humaines" },
+];
+const statusColor = { occupe: SAGE, vacant: GOLD, maintenance: CORAL };
+const statusLabel = { occupe: "Occupé", vacant: "Vacant", maintenance: "Maintenance" };
+
+// ----- Client Supabase minimal (fetch direct vers PostgREST) -----
+async function signIn(email, password) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.msg || "Identifiants invalides");
+  return data;
+}
+async function signUp(email, password) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/signup`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email, password }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.msg || "Impossible de créer le compte");
+  return data;
+}
+async function query(table, token, params = "") {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, {
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Erreur lecture ${table}`);
+  return res.json();
+}
+async function patchRow(table, id, token, body) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    method: "PATCH",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`Erreur mise à jour ${table}`);
+  return res.json();
+}
+async function insertRow(table, token, body) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" },
+    body: JSON.stringify(body),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.message || `Erreur création ${table}`);
+  return json;
+}
+async function deleteRow(table, id, token) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
+    method: "DELETE",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, Prefer: "return=representation" },
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { const j = await res.json(); detail = j.message || j.details || ""; } catch (_) {}
+    if (detail.toLowerCase().includes("foreign key") || detail.includes("23503")) {
+      throw new Error("Suppression impossible : des enregistrements liés existent encore (paiements, etc.). Utilise plutôt le statut pour clôturer sans perdre l'historique.");
+    }
+    throw new Error(detail || `Erreur suppression ${table}`);
+  }
+}
+async function uploadPhoto(file, token, employeeId) {
+  const ext = file.name.split(".").pop();
+  const path = `${employeeId}-${Date.now()}.${ext}`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/employee-photos/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type, "x-upsert": "true" },
+    body: file,
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { const j = await res.json(); detail = j.message || ""; } catch (_) {}
+    throw new Error(detail || "Échec de l'envoi de la photo");
+  }
+  return `${SUPABASE_URL}/storage/v1/object/public/employee-photos/${path}`;
+}
+async function uploadDocumentFile(file, path, token) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/documents/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type, "x-upsert": "true" },
+    body: file,
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { const j = await res.json(); detail = j.message || ""; } catch (_) {}
+    throw new Error(detail || "Échec de l'envoi du document");
+  }
+  return path;
+}
+async function getSignedDocumentUrl(path, token) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/documents/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: 120 }),
+  });
+  if (!res.ok) throw new Error("Impossible de générer le lien de consultation");
+  const json = await res.json();
+  return `${SUPABASE_URL}/storage/v1${json.signedURL}`;
+}
+async function deleteDocumentFile(path, token) {
+  await fetch(`${SUPABASE_URL}/storage/v1/object/documents/${path}`, {
+    method: "DELETE",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+  });
+}
+
+// ----------------------------------------------------------------------------
+// Export Excel / PDF
+// ----------------------------------------------------------------------------
+// Formatte un nombre avec des espaces classiques (le caractère spécial utilisé
+// par toLocaleString("fr-FR") n'est pas supporté par la police par défaut du PDF)
+function pdfNum(n) {
+  return Math.round(Number(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
+}
+
+function exportExcel(filename, sheetName, rows) {
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, `${filename}.xlsx`);
+}
+
+function exportPDFTable(title, columns, rows, filename) {
+  const doc = new window.jspdf.jsPDF();
+  doc.setFontSize(16);
+  doc.text(title, 14, 18);
+  doc.setFontSize(9);
+  doc.setTextColor(130, 130, 130);
+  doc.text(`Généré le ${new Date().toLocaleDateString("fr-FR")} — PropOS Enterprise`, 14, 25);
+  doc.autoTable({ startY: 32, head: [columns], body: rows, headStyles: { fillColor: [10, 38, 71] }, styles: { fontSize: 8 } });
+  doc.save(`${filename}.pdf`);
+}
+
+function exportFinanceReport(kpis, latePayments, filename) {
+  const doc = new window.jspdf.jsPDF();
+  doc.setFontSize(18);
+  doc.text("Rapport financier mensuel", 14, 20);
+  doc.setFontSize(10);
+  doc.setTextColor(130, 130, 130);
+  doc.text(`PropOS Enterprise — Généré le ${new Date().toLocaleDateString("fr-FR")}`, 14, 27);
+
+  doc.setFontSize(11);
+  doc.setTextColor(20, 20, 20);
+  doc.text(`Revenus collectés : ${pdfNum(kpis.collected)}`, 14, 40);
+  doc.text(`Loyers en retard : ${pdfNum(kpis.late)}`, 14, 47);
+  doc.text(`Taux d'occupation : ${kpis.rate}% (${kpis.occupied} / ${kpis.total} biens)`, 14, 54);
+
+  if (latePayments.length) {
+    doc.setFontSize(12);
+    doc.text("Loyers en retard — détail", 14, 66);
+    doc.autoTable({
+      startY: 71,
+      head: [["Locataire", "Bien", "Échéance", "Montant"]],
+      body: latePayments.map(p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", p.due_date, pdfNum(p.amount)]),
+      headStyles: { fillColor: [196, 102, 79] },
+      styles: { fontSize: 9 },
+    });
+  }
+  doc.save(`${filename}.pdf`);
+}
+
+function ExportButtons({ onExcel, onPDF }) {
+  return (
+    <div style={{ display: "flex", gap: 10 }}>
+      <span onClick={onExcel} style={{ fontSize: 12, color: SAGE, cursor: "pointer", fontWeight: 600 }}>⬇ Excel</span>
+      <span onClick={onPDF} style={{ fontSize: 12, color: CORAL, cursor: "pointer", fontWeight: 600 }}>⬇ PDF</span>
+    </div>
+  );
+}
+
+// ----- UI atoms -----
+function KpiCard({ label, value, sub, accent }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: 4, padding: "22px 22px 20px", borderTop: `3px solid ${accent || GOLD}`, boxShadow: "0 1px 3px rgba(15,52,96,0.06)" }}>
+      <div style={{ fontSize: 12.5, color: "#8A8577" }}>{label}</div>
+      <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 28, fontWeight: 600, color: NAVY_DEEP, marginTop: 8 }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, color: "#8A8577", marginTop: 4 }}>{sub}</div>}
+    </div>
+  );
+}
+function SectionCard({ title, children, style, action }) {
+  return (
+    <div style={{ background: "#fff", borderRadius: 4, padding: "20px 22px", boxShadow: "0 1px 3px rgba(15,52,96,0.06)", ...style }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 500, color: NAVY_DEEP, margin: 0 }}>{title}</h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+function BarRow({ label, value, max, color }) {
+  const pct = max ? Math.min(100, (value / max) * 100) : 0;
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#8A8577", marginBottom: 4 }}>
+        <span>{label}</span><span style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{value.toLocaleString("fr-FR")} €</span>
+      </div>
+      <div style={{ height: 8, background: SAND, borderRadius: 20 }}>
+        <div style={{ width: `${pct}%`, height: 8, background: color, borderRadius: 20 }} />
+      </div>
+    </div>
+  );
+}
+
+function Modal({ title, onClose, children }) {
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,38,71,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 6, padding: 28, width: 420, maxHeight: "85vh", overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
+          <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, margin: 0 }}>{title}</h3>
+          <span onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: "#8A8577" }}>✕</span>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+function Field({ label, children }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ fontSize: 12, color: "#8A8577", display: "block", marginBottom: 4 }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+const inputStyle = { width: "100%", padding: "9px 11px", borderRadius: 4, border: `1px solid ${SAND}`, fontSize: 13.5, fontFamily: "'Inter', sans-serif" };
+const primaryBtn = { background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "10px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer", width: "100%" };
+const addBtn = { background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 3, padding: "8px 14px", fontSize: 12.5, cursor: "pointer" };
+
+function AddPropertyForm({ buildings, onSubmit, submitting }) {
+  const [f, setF] = useState({ building_id: "", reference: "", name: "", address: "", surface: "", pieces: "", rent: "", charges: "0", status: "vacant" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Immeuble (optionnel)">
+        <select style={inputStyle} value={f.building_id} onChange={set("building_id")}>
+          <option value="">— Aucun / bien isolé —</option>
+          {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Référence (ex: A-101)"><input style={inputStyle} value={f.reference} onChange={set("reference")} /></Field>
+      <Field label="Nom du bien"><input style={inputStyle} value={f.name} onChange={set("name")} placeholder="T3 Rénové" /></Field>
+      <Field label="Adresse"><input style={inputStyle} value={f.address} onChange={set("address")} /></Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Surface (m²)"><input style={inputStyle} type="number" value={f.surface} onChange={set("surface")} /></Field>
+        <Field label="Pièces"><input style={inputStyle} type="number" value={f.pieces} onChange={set("pieces")} /></Field>
+      </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Loyer (€)"><input style={inputStyle} type="number" value={f.rent} onChange={set("rent")} /></Field>
+        <Field label="Charges (€)"><input style={inputStyle} type="number" value={f.charges} onChange={set("charges")} /></Field>
+      </div>
+      <Field label="Statut">
+        <select style={inputStyle} value={f.status} onChange={set("status")}>
+          <option value="vacant">Vacant</option>
+          <option value="occupe">Occupé</option>
+          <option value="maintenance">Maintenance</option>
+        </select>
+      </Field>
+      <button style={primaryBtn} disabled={submitting || !f.name || !f.address || !f.rent}
+        onClick={() => onSubmit({ ...f, building_id: f.building_id || null, surface: Number(f.surface) || null, pieces: Number(f.pieces) || null, rent: Number(f.rent), charges: Number(f.charges) || 0 })}>
+        {submitting ? "Création…" : "Ajouter le bien"}
+      </button>
+    </div>
+  );
+}
+
+function AddTenantForm({ onSubmit, submitting }) {
+  const [f, setF] = useState({ full_name: "", email: "", phone: "" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Nom complet"><input style={inputStyle} value={f.full_name} onChange={set("full_name")} /></Field>
+      <Field label="Email"><input style={inputStyle} type="email" value={f.email} onChange={set("email")} /></Field>
+      <Field label="Téléphone"><input style={inputStyle} value={f.phone} onChange={set("phone")} /></Field>
+      <button style={primaryBtn} disabled={submitting || !f.full_name} onClick={() => onSubmit(f)}>
+        {submitting ? "Création…" : "Ajouter le locataire"}
+      </button>
+    </div>
+  );
+}
+
+function AddLeaseForm({ properties, tenants, onSubmit, submitting }) {
+  const [f, setF] = useState({ property_id: "", tenant_id: "", rent: "", start_date: "", end_date: "" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Bien">
+        <select style={inputStyle} value={f.property_id} onChange={set("property_id")}>
+          <option value="">— Choisir un bien —</option>
+          {properties.map(p => <option key={p.id} value={p.id}>{p.name} — {p.address}</option>)}
+        </select>
+      </Field>
+      <Field label="Locataire">
+        <select style={inputStyle} value={f.tenant_id} onChange={set("tenant_id")}>
+          <option value="">— Choisir un locataire —</option>
+          {tenants.map(t => <option key={t.id} value={t.id}>{t.full_name}</option>)}
+        </select>
+      </Field>
+      <Field label="Loyer (€)"><input style={inputStyle} type="number" value={f.rent} onChange={set("rent")} /></Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Début"><input style={inputStyle} type="date" value={f.start_date} onChange={set("start_date")} /></Field>
+        <Field label="Fin (optionnel)"><input style={inputStyle} type="date" value={f.end_date} onChange={set("end_date")} /></Field>
+      </div>
+      <button style={primaryBtn} disabled={submitting || !f.property_id || !f.tenant_id || !f.rent || !f.start_date}
+        onClick={() => onSubmit({ ...f, rent: Number(f.rent), end_date: f.end_date || null })}>
+        {submitting ? "Création…" : "Créer le bail"}
+      </button>
+    </div>
+  );
+}
+
+function EditPropertyForm({ property, buildings, onSubmit, onDelete, submitting }) {
+  const [f, setF] = useState({
+    building_id: property.building_id || "",
+    reference: property.reference || "", name: property.name || "", address: property.address || "",
+    surface: property.surface || "", pieces: property.pieces || "", rent: property.rent || "",
+    charges: property.charges || "0", status: property.status || "vacant",
+  });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Immeuble (optionnel)">
+        <select style={inputStyle} value={f.building_id} onChange={set("building_id")}>
+          <option value="">— Aucun / bien isolé —</option>
+          {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Référence"><input style={inputStyle} value={f.reference} onChange={set("reference")} /></Field>
+      <Field label="Nom du bien"><input style={inputStyle} value={f.name} onChange={set("name")} /></Field>
+      <Field label="Adresse"><input style={inputStyle} value={f.address} onChange={set("address")} /></Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Surface (m²)"><input style={inputStyle} type="number" value={f.surface} onChange={set("surface")} /></Field>
+        <Field label="Pièces"><input style={inputStyle} type="number" value={f.pieces} onChange={set("pieces")} /></Field>
+      </div>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Loyer (€)"><input style={inputStyle} type="number" value={f.rent} onChange={set("rent")} /></Field>
+        <Field label="Charges (€)"><input style={inputStyle} type="number" value={f.charges} onChange={set("charges")} /></Field>
+      </div>
+      <Field label="Statut">
+        <select style={inputStyle} value={f.status} onChange={set("status")}>
+          <option value="vacant">Vacant</option>
+          <option value="occupe">Occupé</option>
+          <option value="maintenance">Maintenance</option>
+        </select>
+      </Field>
+      <button style={primaryBtn} disabled={submitting}
+        onClick={() => onSubmit({ ...f, building_id: f.building_id || null, surface: Number(f.surface) || null, pieces: Number(f.pieces) || null, rent: Number(f.rent), charges: Number(f.charges) || 0 })}>
+        {submitting ? "Enregistrement…" : "Enregistrer les modifications"}
+      </button>
+      <button
+        style={{ ...primaryBtn, background: "#fff", color: CORAL, border: `1px solid ${CORAL}55`, marginTop: 10 }}
+        disabled={submitting}
+        onClick={() => { if (confirm(`Supprimer définitivement "${property.name}" ?`)) onDelete(); }}>
+        Supprimer le bien
+      </button>
+    </div>
+  );
+}
+
+function EditTenantForm({ tenant, onSubmit, onDelete, submitting, documents, onUploadDoc, onViewDoc, onDeleteDoc, uploadingDoc }) {
+  const [f, setF] = useState({ full_name: tenant.full_name || "", email: tenant.email || "", phone: tenant.phone || "" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Nom complet"><input style={inputStyle} value={f.full_name} onChange={set("full_name")} /></Field>
+      <Field label="Email"><input style={inputStyle} type="email" value={f.email} onChange={set("email")} /></Field>
+      <Field label="Téléphone"><input style={inputStyle} value={f.phone} onChange={set("phone")} /></Field>
+      <button style={primaryBtn} disabled={submitting || !f.full_name} onClick={() => onSubmit(f)}>
+        {submitting ? "Enregistrement…" : "Enregistrer les modifications"}
+      </button>
+      <button
+        style={{ ...primaryBtn, background: "#fff", color: CORAL, border: `1px solid ${CORAL}55`, marginTop: 10 }}
+        disabled={submitting}
+        onClick={() => { if (confirm(`Supprimer le locataire "${tenant.full_name}" ? Impossible si un bail actif y est encore rattaché.`)) onDelete(); }}>
+        Supprimer le locataire
+      </button>
+      <DocumentsPanel documents={documents} uploading={uploadingDoc}
+        onUpload={(file, docType) => onUploadDoc(file, docType, "tenant", tenant.id)}
+        onView={onViewDoc} onDelete={onDeleteDoc} />
+    </div>
+  );
+}
+
+function EditLeaseForm({ lease, properties, onSubmit, onDelete, submitting, documents, onUploadDoc, onViewDoc, onDeleteDoc, uploadingDoc }) {
+  const [f, setF] = useState({
+    property_id: lease.property_id || "", rent: lease.rent || "",
+    start_date: lease.start_date || "", end_date: lease.end_date || "", status: lease.status || "actif",
+  });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Bien">
+        <select style={inputStyle} value={f.property_id} onChange={set("property_id")}>
+          {properties.map(p => <option key={p.id} value={p.id}>{p.name} — {p.address}</option>)}
+        </select>
+      </Field>
+      <Field label="Loyer (€)"><input style={inputStyle} type="number" value={f.rent} onChange={set("rent")} /></Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Début"><input style={inputStyle} type="date" value={f.start_date} onChange={set("start_date")} /></Field>
+        <Field label="Fin (optionnel)"><input style={inputStyle} type="date" value={f.end_date || ""} onChange={set("end_date")} /></Field>
+      </div>
+      <Field label="Statut">
+        <select style={inputStyle} value={f.status} onChange={set("status")}>
+          <option value="actif">Actif</option>
+          <option value="expire">Expiré</option>
+          <option value="resilie">Résilié</option>
+        </select>
+      </Field>
+      <button style={primaryBtn} disabled={submitting}
+        onClick={() => onSubmit({ ...f, rent: Number(f.rent), end_date: f.end_date || null })}>
+        {submitting ? "Enregistrement…" : "Enregistrer les modifications"}
+      </button>
+      <button
+        style={{ ...primaryBtn, background: "#fff", color: CORAL, border: `1px solid ${CORAL}55`, marginTop: 10 }}
+        disabled={submitting}
+        onClick={() => { if (confirm("Supprimer définitivement ce bail ? Impossible si des paiements y sont rattachés — utilise plutôt le statut \"Résilié\" ci-dessus dans ce cas.")) onDelete(); }}>
+        Supprimer le bail (définitif)
+      </button>
+      <div style={{ fontSize: 11, color: "#8A8577", marginTop: 8, lineHeight: 1.4 }}>
+        💡 Pour clôturer un bail normalement, change son statut en "Résilié" et enregistre — l'historique des paiements reste conservé.
+      </div>
+      <DocumentsPanel documents={documents} uploading={uploadingDoc}
+        onUpload={(file, docType) => onUploadDoc(file, docType, "lease", lease.id)}
+        onView={onViewDoc} onDelete={onDeleteDoc} />
+    </div>
+  );
+}
+
+function AddBuildingForm({ onSubmit, submitting }) {
+  const [f, setF] = useState({ name: "", address: "", description: "" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Nom de l'immeuble"><input style={inputStyle} value={f.name} onChange={set("name")} placeholder="Tour Odéon" /></Field>
+      <Field label="Adresse"><input style={inputStyle} value={f.address} onChange={set("address")} /></Field>
+      <Field label="Description (optionnel)">
+        <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={f.description} onChange={set("description")} />
+      </Field>
+      <button style={primaryBtn} disabled={submitting || !f.name || !f.address} onClick={() => onSubmit(f)}>
+        {submitting ? "Création…" : "Ajouter l'immeuble"}
+      </button>
+    </div>
+  );
+}
+
+function EditBuildingForm({ building, onSubmit, onDelete, submitting }) {
+  const [f, setF] = useState({ name: building.name || "", address: building.address || "", description: building.description || "" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <Field label="Nom de l'immeuble"><input style={inputStyle} value={f.name} onChange={set("name")} /></Field>
+      <Field label="Adresse"><input style={inputStyle} value={f.address} onChange={set("address")} /></Field>
+      <Field label="Description (optionnel)">
+        <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical" }} value={f.description} onChange={set("description")} />
+      </Field>
+      <button style={primaryBtn} disabled={submitting || !f.name} onClick={() => onSubmit(f)}>
+        {submitting ? "Enregistrement…" : "Enregistrer les modifications"}
+      </button>
+      <button
+        style={{ ...primaryBtn, background: "#fff", color: CORAL, border: `1px solid ${CORAL}55`, marginTop: 10 }}
+        disabled={submitting}
+        onClick={() => { if (confirm(`Supprimer l'immeuble "${building.name}" ? Impossible si des biens y sont encore rattachés.`)) onDelete(); }}>
+        Supprimer l'immeuble
+      </button>
+    </div>
+  );
+}
+
+function PhotoAvatar({ url, name, size }) {
+  const initials = (name || "?").split(" ").map(n => n[0]).join("").slice(0, 2);
+  if (url) {
+    return <img src={url} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover" }} />;
+  }
+  return (
+    <div style={{ width: size, height: size, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Fraunces', serif", fontSize: size * 0.38, color: NAVY_DEEP, fontWeight: 600 }}>
+      {initials}
+    </div>
+  );
+}
+
+function EmployeeCard({ employee, onEdit, onDelete }) {
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
+        <PhotoAvatar url={employee.photo_url} name={employee.full_name} size={52} />
+        <div>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP }}>{employee.full_name}</div>
+          <div style={{ fontSize: 12.5, color: GOLD, fontWeight: 600 }}>{employee.role_title}</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 6 }}>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Service</div>
+          <div style={{ fontSize: 13.5, marginTop: 3 }}>{employee.department}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Immeuble</div>
+          <div style={{ fontSize: 13.5, marginTop: 3 }}>🏢 {employee.buildings?.name || "Siège / Direction"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Email</div>
+          <div style={{ fontSize: 13.5, marginTop: 3 }}>{employee.email || "—"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Téléphone</div>
+          <div style={{ fontSize: 13.5, marginTop: 3 }}>{employee.phone || "—"}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Date d'entrée</div>
+          <div style={{ fontSize: 13.5, marginTop: 3 }}>{employee.hired_date}</div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Statut</div>
+          <div style={{ fontSize: 13.5, marginTop: 3 }}>
+            <span style={{
+              fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+              background: employee.status === "actif" ? "#E9F1EA" : "#FBF3E3",
+              color: employee.status === "actif" ? SAGE : "#A8862F"
+            }}>{employee.status}</span>
+          </div>
+        </div>
+      </div>
+      <div style={{ borderTop: `1px solid ${SAND}`, marginTop: 14, paddingTop: 14, marginBottom: 18 }}>
+        <div style={{ fontSize: 11, color: "#8A8577", textTransform: "uppercase", letterSpacing: "0.04em" }}>Salaire brut mensuel</div>
+        <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 20, fontWeight: 600, color: NAVY_DEEP, marginTop: 4 }}>
+          {Number(employee.monthly_gross_salary).toLocaleString("fr-FR")} €
+        </div>
+      </div>
+      <button style={primaryBtn} onClick={onEdit}>Modifier la fiche</button>
+      <button
+        style={{ ...primaryBtn, background: "#fff", color: CORAL, border: `1px solid ${CORAL}55`, marginTop: 10 }}
+        onClick={() => { if (confirm(`Supprimer définitivement "${employee.full_name}" ?`)) onDelete(); }}>
+        Supprimer l'employé
+      </button>
+    </div>
+  );
+}
+
+const docTypeLabels = { contrat: "Contrat de bail", etat_des_lieux: "État des lieux", piece_identite: "Pièce d'identité", autre: "Autre" };
+
+function DocumentsPanel({ documents, onUpload, onView, onDelete, uploading }) {
+  const [docType, setDocType] = useState("contrat");
+  return (
+    <div style={{ borderTop: `1px solid ${SAND}`, marginTop: 16, paddingTop: 16 }}>
+      <div style={{ fontSize: 13, fontWeight: 500, color: NAVY_DEEP, marginBottom: 10 }}>📎 Documents</div>
+
+      {documents.length === 0 && <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 10 }}>Aucun document pour l'instant.</div>}
+
+      {documents.map(d => (
+        <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F5F2EA" }}>
+          <div>
+            <div style={{ fontSize: 12.5, fontWeight: 500 }}>{d.name}</div>
+            <div style={{ fontSize: 10.5, color: "#8A8577" }}>{docTypeLabels[d.doc_type] || d.doc_type}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <span onClick={() => onView(d)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>Voir</span>
+            <span onClick={() => onDelete(d)} style={{ fontSize: 11.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Supprimer</span>
+          </div>
+        </div>
+      ))}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+        <select style={{ ...inputStyle, flex: "0 0 150px" }} value={docType} onChange={e => setDocType(e.target.value)}>
+          <option value="contrat">Contrat de bail</option>
+          <option value="etat_des_lieux">État des lieux</option>
+          <option value="piece_identite">Pièce d'identité</option>
+          <option value="autre">Autre</option>
+        </select>
+        <label style={{ fontSize: 12.5, color: NAVY, cursor: "pointer", border: `1px solid ${SAND}`, borderRadius: 4, padding: "9px 12px", flex: 1, textAlign: "center" }}>
+          {uploading ? "Envoi…" : "+ Ajouter un fichier"}
+          <input type="file" style={{ display: "none" }} disabled={uploading}
+            onChange={e => e.target.files[0] && onUpload(e.target.files[0], docType)} />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function PhotoUploadField({ currentUrl, onFileSelected, uploading }) {
+  return (
+    <Field label="Photo (optionnel)">
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <PhotoAvatar url={currentUrl} name="?" size={44} />
+        <label style={{ fontSize: 12.5, color: NAVY, cursor: "pointer", border: `1px solid ${SAND}`, borderRadius: 4, padding: "8px 12px" }}>
+          {uploading ? "Envoi…" : "Choisir une photo"}
+          <input type="file" accept="image/*" style={{ display: "none" }} disabled={uploading}
+            onChange={e => e.target.files[0] && onFileSelected(e.target.files[0])} />
+        </label>
+      </div>
+    </Field>
+  );
+}
+
+function EmployeeForm({ initial, buildings, onSubmit, submitting, onUploadPhoto, uploadingPhoto }) {
+  const [f, setF] = useState({
+    building_id: initial?.building_id || "", full_name: initial?.full_name || "",
+    role_title: initial?.role_title || "", department: initial?.department || "",
+    email: initial?.email || "", phone: initial?.phone || "",
+    hired_date: initial?.hired_date || "", monthly_gross_salary: initial?.monthly_gross_salary || "",
+    status: initial?.status || "actif", photo_url: initial?.photo_url || "",
+  });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <PhotoUploadField currentUrl={f.photo_url} uploading={uploadingPhoto}
+        onFileSelected={async file => { const url = await onUploadPhoto(file); if (url) setF(prev => ({ ...prev, photo_url: url })); }} />
+      <Field label="Immeuble (optionnel, laisser vide pour Siège/Direction)">
+        <select style={inputStyle} value={f.building_id} onChange={set("building_id")}>
+          <option value="">— Siège / Direction —</option>
+          {buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+        </select>
+      </Field>
+      <Field label="Nom complet"><input style={inputStyle} value={f.full_name} onChange={set("full_name")} /></Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Poste"><input style={inputStyle} value={f.role_title} onChange={set("role_title")} placeholder="Concierge" /></Field>
+        <Field label="Service"><input style={inputStyle} value={f.department} onChange={set("department")} placeholder="Conciergerie" /></Field>
+      </div>
+      <Field label="Email"><input style={inputStyle} type="email" value={f.email} onChange={set("email")} /></Field>
+      <Field label="Téléphone"><input style={inputStyle} value={f.phone} onChange={set("phone")} /></Field>
+      <div style={{ display: "flex", gap: 10 }}>
+        <Field label="Date d'entrée"><input style={inputStyle} type="date" value={f.hired_date} onChange={set("hired_date")} /></Field>
+        <Field label="Salaire brut (€)"><input style={inputStyle} type="number" value={f.monthly_gross_salary} onChange={set("monthly_gross_salary")} /></Field>
+      </div>
+      <Field label="Statut">
+        <select style={inputStyle} value={f.status} onChange={set("status")}>
+          <option value="actif">Actif</option>
+          <option value="conge">En congé</option>
+          <option value="sorti">Sorti</option>
+        </select>
+      </Field>
+      <button style={primaryBtn} disabled={submitting || !f.full_name || !f.role_title}
+        onClick={() => onSubmit({ ...f, building_id: f.building_id || null, monthly_gross_salary: Number(f.monthly_gross_salary) || 0, photo_url: f.photo_url || null })}>
+        {submitting ? "Enregistrement…" : (initial ? "Enregistrer les modifications" : "Ajouter l'employé")}
+      </button>
+    </div>
+  );
+}
+
+function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
+  const [mode, setMode] = useState("staff"); // 'staff' | 'tenant'
+  const [signupMode, setSignupMode] = useState(false);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+
+  const tabBtn = (active) => ({
+    flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "center",
+    borderRadius: 4, background: active ? NAVY_DEEP : "transparent", color: active ? "#fff" : "#8A8577",
+  });
+
+  return (
+    <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ background: "#fff", borderRadius: 6, padding: 36, width: 380 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 4, background: GOLD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: NAVY_DEEP, fontSize: 16 }}>P</span>
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, color: NAVY_DEEP }}>PropOS</div>
+            <div style={{ fontSize: 10.5, color: "#8A8577" }}>ENTERPRISE</div>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 4, background: IVORY, borderRadius: 4, padding: 4, marginBottom: 20 }}>
+          <div style={tabBtn(mode === "staff")} onClick={() => { setMode("staff"); setSignupMode(false); }}>Espace Équipe</div>
+          <div style={tabBtn(mode === "tenant")} onClick={() => setMode("tenant")}>Espace Locataire</div>
+        </div>
+
+        {mode === "tenant" && signupMode ? (
+          <>
+            <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 14, lineHeight: 1.5 }}>
+              Utilise la <b>même adresse email</b> que celle enregistrée par ton agence sur ton bail — ton accès sera relié automatiquement.
+            </div>
+            <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 }} />
+            <label style={{ fontSize: 12, color: "#8A8577" }}>Choisir un mot de passe</label>
+            <input value={password} onChange={e => setPassword(e.target.value)} type="password"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 18px", fontSize: 13.5 }} />
+            {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
+            {signupInfo && <div style={{ background: "#E9F1EA", color: SAGE, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{signupInfo}</div>}
+            <button onClick={() => onTenantSignup(email, password)} disabled={loading}
+              style={{ width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }}>
+              {loading ? "Création…" : "Créer mon accès"}
+            </button>
+            <div style={{ textAlign: "center", marginTop: 14 }}>
+              <span onClick={() => setSignupMode(false)} style={{ fontSize: 12, color: NAVY, cursor: "pointer" }}>← J'ai déjà un compte</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 }} />
+            <label style={{ fontSize: 12, color: "#8A8577" }}>Mot de passe</label>
+            <input value={password} onChange={e => setPassword(e.target.value)} type="password"
+              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 18px", fontSize: 13.5 }} />
+            {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
+            <button onClick={() => onLogin(email, password, mode)} disabled={loading}
+              style={{ width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }}>
+              {loading ? "Connexion…" : "Se connecter"}
+            </button>
+            {mode === "tenant" && (
+              <div style={{ textAlign: "center", marginTop: 14 }}>
+                <span onClick={() => setSignupMode(true)} style={{ fontSize: 12, color: NAVY, cursor: "pointer" }}>Première connexion ? Créer mon accès →</span>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function TenantPortal({ session, tenant, onLogout }) {
+  const [data, setData] = useState({ leases: [], payments: [], documents: [], tickets: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [ticketForm, setTicketForm] = useState({ category: "plomberie", description: "" });
+  const [submittingTicket, setSubmittingTicket] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = session.access_token;
+        const [leases, payments, documents, tickets] = await Promise.all([
+          query("leases", token, "?select=*,properties(name,address,surface,pieces)"),
+          query("payments", token, "?select=*,leases(properties(name))&order=due_date.desc"),
+          query("documents", token, "?select=*&order=uploaded_at.desc"),
+          query("maintenance_tickets", token, "?select=*,properties(name)&order=created_at.desc"),
+        ]);
+        setData({ leases, payments, documents, tickets });
+      } catch (e) { setError(e.message); }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const activeLease = data.leases.find(l => l.status === "actif") || data.leases[0];
+
+  async function viewDoc(doc) {
+    try {
+      const url = await getSignedDocumentUrl(doc.storage_path, session.access_token);
+      window.open(url, "_blank");
+    } catch (e) { alert(e.message); }
+  }
+
+  async function submitTicket() {
+    if (!activeLease || !ticketForm.description) return;
+    setSubmittingTicket(true);
+    try {
+      const [row] = await insertRow("maintenance_tickets", session.access_token, {
+        organization_id: tenant.organization_id,
+        property_id: activeLease.property_id,
+        category: ticketForm.category,
+        priority: "moyen",
+        status: "ouvert",
+        description: ticketForm.description,
+        reported_by_tenant_id: tenant.id,
+      });
+      setData(d => ({ ...d, tickets: [{ ...row, properties: activeLease.properties }, ...d.tickets] }));
+      setTicketForm({ category: "plomberie", description: "" });
+    } catch (e) { alert(e.message); }
+    finally { setSubmittingTicket(false); }
+  }
+
+  return (
+    <div style={{ minHeight: "100vh", background: IVORY }}>
+      <div style={{ background: NAVY_DEEP, padding: "16px 32px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: 4, background: GOLD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: NAVY_DEEP, fontSize: 14 }}>P</span>
+          </div>
+          <div style={{ color: "#fff", fontFamily: "'Fraunces', serif", fontSize: 15 }}>PropOS — Espace Locataire</div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ color: "#DCE1EA", fontSize: 13 }}>{tenant.full_name}</span>
+          <span onClick={onLogout} style={{ color: "#9AA6BC", fontSize: 12.5, cursor: "pointer" }}>Quitter</span>
+        </div>
+      </div>
+
+      <div style={{ maxWidth: 760, margin: "0 auto", padding: 32 }}>
+        {loading && <div style={{ color: "#8A8577", fontSize: 13 }}>Chargement…</div>}
+        {error && <div style={{ background: "#FBEEEA", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{error}</div>}
+
+        {!loading && !activeLease && (
+          <div style={{ color: "#8A8577", fontSize: 13, textAlign: "center", padding: 40 }}>
+            Aucun bail actif n'est associé à ton compte pour l'instant. Contacte ta gestion locative.
+          </div>
+        )}
+
+        {activeLease && (
+          <>
+            <SectionCard title="Mon logement" style={{ marginBottom: 18 }}>
+              <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, color: NAVY_DEEP }}>{activeLease.properties?.name}</div>
+              <div style={{ fontSize: 12.5, color: "#8A8577", marginTop: 4 }}>📍 {activeLease.properties?.address}</div>
+              <div style={{ display: "flex", gap: 24, marginTop: 14, paddingTop: 14, borderTop: `1px solid #F0ECE2` }}>
+                <div>
+                  <div style={{ fontSize: 10.5, color: "#8A8577", textTransform: "uppercase" }}>Loyer mensuel</div>
+                  <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, fontWeight: 600, color: NAVY_DEEP }}>{Number(activeLease.rent).toLocaleString("fr-FR")} €</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10.5, color: "#8A8577", textTransform: "uppercase" }}>Début du bail</div>
+                  <div style={{ fontSize: 13.5, marginTop: 2 }}>{activeLease.start_date}</div>
+                </div>
+                <div>
+                  <div style={{ fontSize: 10.5, color: "#8A8577", textTransform: "uppercase" }}>Statut</div>
+                  <div style={{ fontSize: 13.5, marginTop: 2 }}>{activeLease.status}</div>
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Mes paiements" style={{ marginBottom: 18 }}>
+              {data.payments.length === 0 && <div style={{ fontSize: 13, color: "#8A8577" }}>Aucun paiement enregistré.</div>}
+              <table className="leases">
+                <thead><tr><th>Échéance</th><th>Montant</th><th>Statut</th></tr></thead>
+                <tbody>
+                  {data.payments.map(p => (
+                    <tr key={p.id}>
+                      <td style={{ fontSize: 12.5 }}>{p.due_date}</td>
+                      <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                      <td>
+                        <span style={{
+                          fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+                          background: p.status === "paye" ? "#E9F1EA" : "#FBEEEA",
+                          color: p.status === "paye" ? SAGE : CORAL,
+                        }}>{p.status === "paye" ? "Payé" : p.status === "en_retard" ? "En retard" : "En attente"}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </SectionCard>
+
+            <SectionCard title="Mes documents" style={{ marginBottom: 18 }}>
+              {data.documents.length === 0 && <div style={{ fontSize: 13, color: "#8A8577" }}>Aucun document partagé pour l'instant.</div>}
+              {data.documents.map(d => (
+                <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #F5F2EA" }}>
+                  <div>
+                    <div style={{ fontSize: 12.5, fontWeight: 500 }}>{d.name}</div>
+                    <div style={{ fontSize: 10.5, color: "#8A8577" }}>{docTypeLabels[d.doc_type] || d.doc_type}</div>
+                  </div>
+                  <span onClick={() => viewDoc(d)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>Voir</span>
+                </div>
+              ))}
+            </SectionCard>
+
+            <SectionCard title="Signaler un problème">
+              <div style={{ display: "flex", gap: 10, marginBottom: 10 }}>
+                <select style={inputStyle} value={ticketForm.category} onChange={e => setTicketForm({ ...ticketForm, category: e.target.value })}>
+                  <option value="plomberie">Plomberie</option>
+                  <option value="electricite">Électricité</option>
+                  <option value="climatisation">Climatisation</option>
+                  <option value="structural">Structurel</option>
+                  <option value="ascenseur">Ascenseur</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </div>
+              <textarea style={{ ...inputStyle, minHeight: 70, resize: "vertical", marginBottom: 10 }}
+                placeholder="Décris le problème rencontré…"
+                value={ticketForm.description} onChange={e => setTicketForm({ ...ticketForm, description: e.target.value })} />
+              <button style={primaryBtn} disabled={submittingTicket || !ticketForm.description} onClick={submitTicket}>
+                {submittingTicket ? "Envoi…" : "Envoyer le signalement"}
+              </button>
+
+              {data.tickets.length > 0 && (
+                <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${SAND}` }}>
+                  <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 8 }}>Mes signalements précédents</div>
+                  {data.tickets.map(t => (
+                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #F5F2EA" }}>
+                      <div style={{ fontSize: 12.5 }}>{t.category} — {t.description}</div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: t.status === "resolu" ? SAGE : CORAL }}>{t.status}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </SectionCard>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  const [session, setSession] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [tenantProfile, setTenantProfile] = useState(null);
+  const [authError, setAuthError] = useState("");
+  const [authLoading, setAuthLoading] = useState(false);
+  const [signupInfo, setSignupInfo] = useState("");
+  const [tab, setTab] = useState("overview");
+  const [hrTab, setHrTab] = useState("employees");
+  const [data, setData] = useState({ buildings: [], properties: [], tenants: [], leases: [], payments: [], maintenance: [], employees: [], payslips: [], leaveRequests: [], documents: [] });
+  const [dataError, setDataError] = useState("");
+  const [modal, setModal] = useState(null); // 'building' | 'property' | 'tenant' | 'lease' | null
+  const [editingProperty, setEditingProperty] = useState(null);
+  const [editingBuilding, setEditingBuilding] = useState(null);
+  const [viewingEmployee, setViewingEmployee] = useState(null);
+  const [employeeModal, setEmployeeModal] = useState(null); // 'add' | employee-object-being-edited | null
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingDocument, setUploadingDocument] = useState(false);
+  const [editingTenant, setEditingTenant] = useState(null);
+  const [editingLease, setEditingLease] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleLogin(email, password, mode) {
+    setAuthError(""); setSignupInfo(""); setAuthLoading(true);
+    try {
+      const auth = await signIn(email, password);
+      if (mode === "tenant") {
+        const tenantRows = await query("tenants", auth.access_token, `?tenant_user_id=eq.${auth.user.id}&select=*`);
+        if (!tenantRows.length) throw new Error("Aucun accès locataire n'est associé à ce compte. Vérifie ton email ou contacte ta gestion locative.");
+        setSession(auth);
+        setTenantProfile(tenantRows[0]);
+      } else {
+        const profiles = await query("profiles", auth.access_token, `?id=eq.${auth.user.id}&select=*`);
+        if (!profiles.length) throw new Error("Aucun profil trouvé pour cet utilisateur.");
+        setSession(auth);
+        setProfile(profiles[0]);
+      }
+    } catch (e) { setAuthError(e.message); }
+    finally { setAuthLoading(false); }
+  }
+
+  async function handleTenantSignup(email, password) {
+    setAuthError(""); setSignupInfo(""); setAuthLoading(true);
+    try {
+      const result = await signUp(email, password);
+      if (result.access_token) {
+        const tenantRows = await query("tenants", result.access_token, `?tenant_user_id=eq.${result.user.id}&select=*`);
+        if (!tenantRows.length) {
+          setSignupInfo("Compte créé, mais aucun bail n'est encore associé à cette adresse email. Contacte ta gestion locative.");
+          return;
+        }
+        setSession(result);
+        setTenantProfile(tenantRows[0]);
+      } else {
+        setSignupInfo("Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.");
+      }
+    } catch (e) { setAuthError(e.message); }
+    finally { setAuthLoading(false); }
+  }
+
+  function handleLogout() {
+    setSession(null); setProfile(null); setTenantProfile(null);
+  }
+
+
+  useEffect(() => {
+    if (!session || !profile) return;
+    (async () => {
+      try {
+        const token = session.access_token;
+        const [buildings, properties, tenants, leases, payments, maintenance, documents] = await Promise.all([
+          query("buildings", token, "?select=*&order=name.asc"),
+          query("properties", token, "?select=*,buildings(name,address)"),
+          query("tenants", token, "?select=*"),
+          query("leases", token, "?select=*,tenants(full_name,email),properties(name,address)"),
+          query("payments", token, "?select=*,leases(tenants(full_name),properties(name))&order=due_date.desc"),
+          query("maintenance_tickets", token, "?select=*,properties(name)"),
+          query("documents", token, "?select=*&order=uploaded_at.desc"),
+        ]);
+        let employees = [], payslips = [], leaveRequests = [];
+        if (profile.role === "direction") {
+          [employees, payslips, leaveRequests] = await Promise.all([
+            query("employees", token, "?select=*,buildings(name)"),
+            query("payslips", token, "?select=*,employees(full_name)"),
+            query("leave_requests", token, "?select=*,employees(full_name)"),
+          ]);
+        }
+        setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents });
+      } catch (e) { setDataError(e.message); }
+    })();
+  }, [session, profile]);
+
+  const allowedTabs = profile ? PERMISSIONS[profile.role] : [];
+
+  async function createBuilding(fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await insertRow("buildings", session.access_token, { ...fields, organization_id: profile.organization_id });
+      setData(d => ({ ...d, buildings: [...d.buildings, row].sort((a, b) => a.name.localeCompare(b.name)) }));
+      setModal(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function updateBuilding(id, fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await patchRow("buildings", id, session.access_token, fields);
+      setData(d => ({
+        ...d,
+        buildings: d.buildings.map(b => b.id === id ? row : b),
+        properties: d.properties.map(p => p.building_id === id ? { ...p, buildings: { name: row.name, address: row.address } } : p),
+      }));
+      setEditingBuilding(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function deleteBuilding(id) {
+    setSubmitting(true);
+    try {
+      await deleteRow("buildings", id, session.access_token);
+      setData(d => ({ ...d, buildings: d.buildings.filter(b => b.id !== id) }));
+      setEditingBuilding(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function handleUploadPhoto(file) {
+    setUploadingPhoto(true);
+    try {
+      const tempId = (viewingEmployee && viewingEmployee.id) || "new-" + Date.now();
+      return await uploadPhoto(file, session.access_token, tempId);
+    } catch (e) { alert(e.message); return null; }
+    finally { setUploadingPhoto(false); }
+  }
+
+  async function uploadDocumentForTarget(file, docType, linkType, linkId) {
+    setUploadingDocument(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const storagePath = `${profile.organization_id}/${linkType}-${linkId}/${Date.now()}-${safeName}`;
+      await uploadDocumentFile(file, storagePath, session.access_token);
+      const [row] = await insertRow("documents", session.access_token, {
+        organization_id: profile.organization_id,
+        lease_id: linkType === "lease" ? linkId : null,
+        tenant_id: linkType === "tenant" ? linkId : null,
+        name: file.name,
+        doc_type: docType,
+        storage_path: storagePath,
+      });
+      setData(d => ({ ...d, documents: [row, ...d.documents] }));
+    } catch (e) { alert(e.message); }
+    finally { setUploadingDocument(false); }
+  }
+
+  async function viewDocument(doc) {
+    try {
+      const url = await getSignedDocumentUrl(doc.storage_path, session.access_token);
+      window.open(url, "_blank");
+    } catch (e) { alert(e.message); }
+  }
+
+  async function removeDocument(doc) {
+    if (!confirm(`Supprimer "${doc.name}" ?`)) return;
+    try {
+      await deleteDocumentFile(doc.storage_path, session.access_token);
+      await deleteRow("documents", doc.id, session.access_token);
+      setData(d => ({ ...d, documents: d.documents.filter(x => x.id !== doc.id) }));
+    } catch (e) { alert(e.message); }
+  }
+
+  async function createEmployee(fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await insertRow("employees", session.access_token, { ...fields, organization_id: profile.organization_id });
+      const building = data.buildings.find(b => b.id === fields.building_id);
+      setData(d => ({ ...d, employees: [...d.employees, { ...row, buildings: building ? { name: building.name } : null }] }));
+      setEmployeeModal(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function updateEmployee(id, fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await patchRow("employees", id, session.access_token, fields);
+      const building = data.buildings.find(b => b.id === fields.building_id);
+      const enriched = { ...row, buildings: building ? { name: building.name } : null };
+      setData(d => ({ ...d, employees: d.employees.map(e => e.id === id ? enriched : e) }));
+      setEmployeeModal(null);
+      setViewingEmployee(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function deleteEmployee(id) {
+    setSubmitting(true);
+    try {
+      await deleteRow("employees", id, session.access_token);
+      setData(d => ({ ...d, employees: d.employees.filter(e => e.id !== id) }));
+      setViewingEmployee(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function markPaymentPaid(id) {
+    setSubmitting(true);
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const [row] = await patchRow("payments", id, session.access_token, { status: "paye", paid_date: today });
+      setData(d => ({ ...d, payments: d.payments.map(p => p.id === id ? { ...p, ...row } : p) }));
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function approveLeave(id, status) {
+    try {
+      await patchRow("leave_requests", id, session.access_token, { status });
+      setData(d => ({ ...d, leaveRequests: d.leaveRequests.map(l => l.id === id ? { ...l, status } : l) }));
+    } catch (e) { alert(e.message); }
+  }
+
+  async function createProperty(fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await insertRow("properties", session.access_token, { ...fields, organization_id: profile.organization_id });
+      const building = data.buildings.find(b => b.id === fields.building_id);
+      setData(d => ({ ...d, properties: [{ ...row, buildings: building ? { name: building.name, address: building.address } : null }, ...d.properties] }));
+      setModal(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function updateProperty(id, fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await patchRow("properties", id, session.access_token, fields);
+      const building = data.buildings.find(b => b.id === fields.building_id);
+      setData(d => ({ ...d, properties: d.properties.map(p => p.id === id ? { ...row, buildings: building ? { name: building.name, address: building.address } : null } : p) }));
+      setEditingProperty(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function deleteProperty(id) {
+    setSubmitting(true);
+    try {
+      await deleteRow("properties", id, session.access_token);
+      setData(d => ({ ...d, properties: d.properties.filter(p => p.id !== id) }));
+      setEditingProperty(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function updateTenant(id, fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await patchRow("tenants", id, session.access_token, fields);
+      setData(d => ({
+        ...d,
+        tenants: d.tenants.map(t => t.id === id ? row : t),
+        leases: d.leases.map(l => l.tenant_id === id ? { ...l, tenants: row } : l),
+      }));
+      setEditingTenant(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function deleteTenant(id) {
+    setSubmitting(true);
+    try {
+      await deleteRow("tenants", id, session.access_token);
+      setData(d => ({ ...d, tenants: d.tenants.filter(t => t.id !== id) }));
+      setEditingTenant(null);
+    } catch (e) { alert(e.message || "Suppression impossible : un bail actif est encore rattaché à ce locataire."); }
+    finally { setSubmitting(false); }
+  }
+
+  async function updateLease(id, fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await patchRow("leases", id, session.access_token, fields);
+      const property = data.properties.find(p => p.id === fields.property_id);
+      // Si le bail n'est plus actif, le bien repasse vacant ; s'il redevient actif, le bien repasse occupé
+      const newPropertyStatus = fields.status === "actif" ? "occupe" : "vacant";
+      if (property && property.status !== newPropertyStatus) {
+        await patchRow("properties", fields.property_id, session.access_token, { status: newPropertyStatus });
+      }
+      setData(d => ({
+        ...d,
+        leases: d.leases.map(l => l.id === id ? { ...l, ...row, properties: property || l.properties } : l),
+        properties: d.properties.map(p => p.id === fields.property_id ? { ...p, status: newPropertyStatus } : p),
+      }));
+      setEditingLease(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function deleteLease(lease) {
+    setSubmitting(true);
+    try {
+      await deleteRow("leases", lease.id, session.access_token);
+      await patchRow("properties", lease.property_id, session.access_token, { status: "vacant" });
+      setData(d => ({
+        ...d,
+        leases: d.leases.filter(l => l.id !== lease.id),
+        properties: d.properties.map(p => p.id === lease.property_id ? { ...p, status: "vacant" } : p),
+      }));
+      setEditingLease(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function createTenant(fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await insertRow("tenants", session.access_token, { ...fields, organization_id: profile.organization_id });
+      setData(d => ({ ...d, tenants: [row, ...d.tenants] }));
+      setModal(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  async function createLease(fields) {
+    setSubmitting(true);
+    try {
+      const [row] = await insertRow("leases", session.access_token, {
+        ...fields, organization_id: profile.organization_id, status: "actif",
+      });
+      const tenant = data.tenants.find(t => t.id === fields.tenant_id);
+      const property = data.properties.find(p => p.id === fields.property_id);
+      const enriched = { ...row, tenants: tenant, properties: property };
+      setData(d => ({
+        ...d,
+        leases: [enriched, ...d.leases],
+        properties: d.properties.map(p => p.id === fields.property_id ? { ...p, status: "occupe" } : p),
+      }));
+      setModal(null);
+    } catch (e) { alert(e.message); }
+    finally { setSubmitting(false); }
+  }
+
+  const kpis = useMemo(() => {
+    const total = data.properties.length;
+    const occupied = data.properties.filter(p => p.status === "occupe").length;
+    const vacant = data.properties.filter(p => p.status === "vacant").length;
+    const rate = total ? Math.round((occupied / total) * 100) : 0;
+    const collected = data.payments.filter(p => p.status === "paye").reduce((s, p) => s + Number(p.amount), 0);
+    const late = data.payments.filter(p => p.status === "en_retard").reduce((s, p) => s + Number(p.amount), 0);
+    const paidCount = data.payments.filter(p => p.status === "paye").length;
+    const lateCount = data.payments.filter(p => p.status === "en_retard").length;
+    const recoveryRate = (paidCount + lateCount) ? Math.round((paidCount / (paidCount + lateCount)) * 100) : 100;
+    const in60Days = new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const expiringLeases = data.leases.filter(l => l.status === "actif" && l.end_date && l.end_date <= in60Days).length;
+    const urgentTickets = data.maintenance.filter(t => t.status !== "resolu" && t.priority === "urgent").length;
+    const openTickets = data.maintenance.filter(t => t.status !== "resolu").length;
+    return { total, occupied, vacant, rate, collected, late, lateCount, recoveryRate, expiringLeases, urgentTickets, openTickets };
+  }, [data]);
+
+  if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
+  if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} error={authError} signupInfo={signupInfo} loading={authLoading} />;
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", color: INK }}>
+      <aside style={{ width: 240, background: NAVY_DEEP, color: "#fff", padding: "24px 16px", position: "sticky", top: 0, height: "100vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 22 }}>
+          <div style={{ width: 34, height: 34, borderRadius: 4, background: GOLD, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: NAVY_DEEP, fontSize: 16 }}>P</span>
+          </div>
+          <div>
+            <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17 }}>PropOS</div>
+            <div style={{ fontSize: 10.5, color: "#9AA6BC" }}>ENTERPRISE — LIVE</div>
+          </div>
+        </div>
+        <nav>
+          {NAV.map(item => {
+            const active = tab === item.key;
+            const allowed = allowedTabs.includes(item.key);
+            return (
+              <div key={item.key} className={allowed ? "navitem" : ""} onClick={() => allowed && setTab(item.key)}
+                style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", borderRadius: 4, marginBottom: 3, background: active ? "rgba(201,168,76,0.16)" : "transparent", borderLeft: active ? `2px solid ${GOLD}` : "2px solid transparent", opacity: allowed ? 1 : 0.4, cursor: allowed ? "pointer" : "not-allowed" }}>
+                <span style={{ fontSize: 13.5, color: active ? "#fff" : "#C4CBDA" }}>{item.label}</span>
+                {!allowed && <span style={{ fontSize: 11 }}>🔒</span>}
+              </div>
+            );
+          })}
+        </nav>
+        <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ width: 30, height: 30, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Fraunces', serif", fontSize: 12.5, color: NAVY_DEEP, fontWeight: 600 }}>
+            {(profile.full_name || "?").split(" ").map(n => n[0]).join("").slice(0, 2)}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 12.5 }}>{profile.full_name}</div>
+            <div style={{ fontSize: 10.5, color: "#8A93A8" }}>{roles[profile.role]}</div>
+          </div>
+          <span style={{ cursor: "pointer", fontSize: 12 }} onClick={handleLogout}>Quitter</span>
+        </div>
+      </aside>
+
+      <main style={{ flex: 1, background: IVORY }}>
+        <div style={{ background: "#fff", padding: "16px 32px", borderBottom: `1px solid ${SAND}` }}>
+          <div style={{ fontFamily: "'Fraunces', serif", fontSize: 19, color: NAVY_DEEP }}>{NAV.find(n => n.key === tab)?.label}</div>
+        </div>
+        <div style={{ padding: 32 }}>
+          {dataError && <div style={{ background: "#FBEEEA", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{dataError}</div>}
+
+          {tab === "overview" && (
+            <>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginBottom: 20 }}>
+                <KpiCard label="Biens immobiliers" value={kpis.total} sub={`${kpis.vacant} vacant(s)`} accent={NAVY} />
+                <KpiCard label="Taux d'occupation" value={`${kpis.rate}%`} sub={`${kpis.occupied} / ${kpis.total}`} accent={SAGE} />
+                <KpiCard label="Revenus encaissés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={GOLD} />
+                <KpiCard label="Baux actifs" value={data.leases.filter(l => l.status === "actif").length} accent={NAVY} />
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
+                <KpiCard label="Taux de recouvrement" value={`${kpis.recoveryRate}%`} sub={`${kpis.lateCount} paiement(s) en retard`} accent={kpis.recoveryRate >= 95 ? SAGE : CORAL} />
+                <KpiCard label="Baux expirant sous 60j" value={kpis.expiringLeases} accent={kpis.expiringLeases > 0 ? GOLD : SAGE} />
+                <KpiCard label="Tickets urgents" value={kpis.urgentTickets} sub={`${kpis.openTickets} ticket(s) ouvert(s) au total`} accent={kpis.urgentTickets > 0 ? CORAL : SAGE} />
+              </div>
+              {kpis.late > 0 && (
+                <div style={{ background: "#FBEEEA", border: `1px solid ${CORAL}33`, borderRadius: 4, padding: "14px 18px", marginBottom: 20 }}>
+                  ⚠️ <b>{kpis.late.toLocaleString("fr-FR")} €</b> de loyers en retard
+                </div>
+              )}
+              {data.total === 0 && (
+                <div style={{ textAlign: "center", color: "#8A8577", padding: 40 }}>
+                  Aucune donnée pour l'instant — ajoute un bien via Supabase (Table Editor → properties → Insert row).
+                </div>
+              )}
+            </>
+          )}
+
+          {tab === "buildings" && (
+            <SectionCard title={`Immeubles — ${data.buildings.length}`} action={
+              <button style={addBtn} onClick={() => setModal("building")}>+ Ajouter un immeuble</button>
+            }>
+              {data.buildings.length === 0 && <div style={{ color: "#8A8577", fontSize: 13 }}>Aucun immeuble pour l'instant. Les biens sans immeuble restent listés individuellement dans le Portefeuille.</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+                {data.buildings.map(b => {
+                  const units = data.properties.filter(p => p.building_id === b.id);
+                  const occupied = units.filter(u => u.status === "occupe").length;
+                  const totalRent = units.reduce((s, u) => s + Number(u.rent || 0), 0);
+                  return (
+                    <div key={b.id} style={{ background: "#fff", border: `1px solid ${SAND}`, borderRadius: 4, overflow: "hidden", position: "relative" }}>
+                      <div style={{ height: 3, background: NAVY }} />
+                      <span onClick={() => setEditingBuilding(b)} title="Modifier"
+                        style={{ position: "absolute", top: 12, right: 14, cursor: "pointer", fontSize: 13, background: IVORY, borderRadius: 3, width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}>✎</span>
+                      <div style={{ padding: 18 }}>
+                        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, color: NAVY_DEEP }}>{b.name}</div>
+                        <div style={{ fontSize: 11.5, color: "#8A8577", marginTop: 3 }}>📍 {b.address}</div>
+                        {b.description && <div style={{ fontSize: 12, color: "#8A8577", marginTop: 8, fontStyle: "italic" }}>{b.description}</div>}
+                        <div style={{ display: "flex", gap: 18, marginTop: 14, paddingTop: 14, borderTop: `1px solid #F0ECE2` }}>
+                          <div>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: NAVY_DEEP }}>{units.length}</div>
+                            <div style={{ fontSize: 10.5, color: "#8A8577" }}>Unités</div>
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: SAGE }}>{units.length ? Math.round((occupied / units.length) * 100) : 0}%</div>
+                            <div style={{ fontSize: 10.5, color: "#8A8577" }}>Occupation</div>
+                          </div>
+                          <div>
+                            <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 18, fontWeight: 600, color: GOLD }}>{totalRent.toLocaleString("fr-FR")} €</div>
+                            <div style={{ fontSize: 10.5, color: "#8A8577" }}>Loyers cumulés</div>
+                          </div>
+                        </div>
+                        {units.length > 0 && (
+                          <div style={{ marginTop: 14 }}>
+                            {units.map(u => (
+                              <div key={u.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #F5F2EA", fontSize: 12.5 }}>
+                                <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                                  <span style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor[u.status], display: "inline-block" }} />
+                                  {u.name}
+                                </span>
+                                <span style={{ fontFamily: "'IBM Plex Mono', monospace", color: "#8A8577" }}>{Number(u.rent).toLocaleString("fr-FR")} €</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </SectionCard>
+          )}
+
+          {tab === "portfolio" && (
+            <SectionCard title={`Portefeuille — ${data.properties.length} biens`} action={
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <ExportButtons
+                  onExcel={() => exportExcel("propos-portefeuille", "Biens", data.properties.map(p => ({
+                    Référence: p.reference, Nom: p.name, Immeuble: p.buildings?.name || "", Adresse: p.address,
+                    "Surface (m²)": p.surface, Pièces: p.pieces, "Loyer (€)": p.rent, "Charges (€)": p.charges, Statut: statusLabel[p.status],
+                  })))}
+                  onPDF={() => exportPDFTable("Portefeuille immobilier", ["Réf.", "Nom", "Immeuble", "Loyer", "Statut"],
+                    data.properties.map(p => [p.reference, p.name, p.buildings?.name || "—", pdfNum(p.rent), statusLabel[p.status]]),
+                    "propos-portefeuille")}
+                />
+                <button style={addBtn} onClick={() => setModal("property")}>+ Ajouter un bien</button>
+              </div>
+            }>
+              {data.properties.length === 0 && <div style={{ color: "#8A8577", fontSize: 13, marginBottom: 12 }}>Aucun bien pour l'instant.</div>}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+                {data.properties.map(p => (
+                  <div key={p.id} style={{ background: "#fff", border: `1px solid ${SAND}`, borderRadius: 4, overflow: "hidden", position: "relative" }}>
+                    <div style={{ height: 3, background: statusColor[p.status] }} />
+                    <span onClick={() => setEditingProperty(p)}
+                      style={{ position: "absolute", top: 12, right: 12, cursor: "pointer", fontSize: 13, background: IVORY, borderRadius: 3, width: 24, height: 24, display: "flex", alignItems: "center", justifyContent: "center" }}
+                      title="Modifier">✎</span>
+                    <div style={{ padding: 16 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between" }}>
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 11 }}>N° {p.reference}</span>
+                        <span style={{ fontSize: 10.5, fontWeight: 600, color: statusColor[p.status] }}>{statusLabel[p.status]}</span>
+                      </div>
+                      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 15, color: NAVY_DEEP, marginTop: 8 }}>{p.name}</div>
+                      {p.buildings?.name && (
+                        <div style={{ fontSize: 10.5, color: GOLD, fontWeight: 600, marginTop: 2 }}>🏢 {p.buildings.name}</div>
+                      )}
+                      <div style={{ fontSize: 11.5, color: "#8A8577", marginTop: 3 }}>📍 {p.address}</div>
+                      <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12, fontSize: 12 }}>
+                        <span style={{ color: "#8A8577" }}>{p.surface} m² · {p.pieces} p.</span>
+                        <span style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{Number(p.rent).toLocaleString("fr-FR")} €</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+
+          {tab === "tenants" && (
+            <SectionCard title="Baux" action={
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <ExportButtons
+                  onExcel={() => exportExcel("propos-baux", "Baux", data.leases.map(l => ({
+                    Locataire: l.tenants?.full_name || "", Email: l.tenants?.email || "", Bien: l.properties?.name || "",
+                    "Loyer (€)": l.rent, Statut: l.status,
+                  })))}
+                  onPDF={() => exportPDFTable("Baux & locataires", ["Locataire", "Bien", "Loyer", "Statut"],
+                    data.leases.map(l => [l.tenants?.full_name || "—", l.properties?.name || "—", pdfNum(l.rent), l.status]),
+                    "propos-baux")}
+                />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button style={addBtn} onClick={() => setModal("tenant")}>+ Locataire</button>
+                  <button style={addBtn} onClick={() => setModal("lease")}>+ Bail</button>
+                </div>
+              </div>
+            }>
+              {data.leases.length === 0 && <div style={{ color: "#8A8577", fontSize: 13, marginBottom: 12 }}>Aucun bail pour l'instant.</div>}
+              <table className="leases">
+                <thead><tr><th>Locataire</th><th>Bien</th><th>Loyer</th><th>Statut</th><th></th></tr></thead>
+                <tbody>
+                  {data.leases.map(l => (
+                    <tr key={l.id}>
+                      <td>{l.tenants?.full_name}<div style={{ fontSize: 11, color: "#8A8577" }}>{l.tenants?.email}</div></td>
+                      <td>{l.properties?.name} — {l.properties?.address}</td>
+                      <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(l.rent).toLocaleString("fr-FR")} €</td>
+                      <td>{l.status}</td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        <span onClick={() => setEditingTenant(l.tenants ? { ...l.tenants, id: l.tenant_id } : { id: l.tenant_id, full_name: "", email: "", phone: "" })}
+                          title="Modifier le locataire"
+                          style={{ cursor: "pointer", fontSize: 12, marginRight: 10 }}>👤✎</span>
+                        <span onClick={() => setEditingLease(l)} title="Modifier le bail" style={{ cursor: "pointer", fontSize: 12 }}>📄✎</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </SectionCard>
+          )}
+
+          {tab === "finance" && (
+            <>
+              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                <button
+                  onClick={() => exportFinanceReport(kpis, data.payments.filter(p => p.status !== "paye"), "propos-rapport-financier")}
+                  style={{ background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 3, padding: "9px 16px", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}>
+                  📄 Rapport mensuel (PDF)
+                </button>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
+                <KpiCard label="Revenus collectés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={SAGE} />
+                <KpiCard label="Loyers en retard" value={`${kpis.late.toLocaleString("fr-FR")} €`} accent={CORAL} />
+                <KpiCard label="Paiements enregistrés" value={data.payments.length} accent={GOLD} />
+              </div>
+
+              {data.payments.filter(p => p.status !== "paye").length > 0 && (
+                <SectionCard title="À encaisser" style={{ marginBottom: 18 }}
+                  action={<span style={{ fontSize: 12, color: "#8A8577" }}>{data.payments.filter(p => p.status !== "paye").length} en attente</span>}>
+                  <table className="leases">
+                    <thead><tr><th>Locataire</th><th>Bien</th><th>Échéance</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
+                    <tbody>
+                      {data.payments.filter(p => p.status !== "paye").map(p => (
+                        <tr key={p.id}>
+                          <td>{p.leases?.tenants?.full_name || "—"}</td>
+                          <td>{p.leases?.properties?.name || "—"}</td>
+                          <td style={{ fontSize: 12.5, color: "#8A8577" }}>{p.due_date}</td>
+                          <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                          <td>
+                            <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: "#FBEEEA", color: CORAL }}>
+                              {p.status === "en_retard" ? "En retard" : "En attente"}
+                            </span>
+                          </td>
+                          <td>
+                            <button disabled={submitting} onClick={() => markPaymentPaid(p.id)}
+                              style={{ background: SAGE, color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                              ✓ Marquer reçu
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </SectionCard>
+              )}
+
+              <SectionCard title="Historique des paiements" action={
+                <ExportButtons
+                  onExcel={() => exportExcel("propos-historique-paiements", "Paiements", data.payments.filter(p => p.status === "paye").map(p => ({
+                    Locataire: p.leases?.tenants?.full_name || "", Bien: p.leases?.properties?.name || "",
+                    "Date de paiement": p.paid_date || p.due_date, "Montant (€)": p.amount, Statut: "Payé",
+                  })))}
+                  onPDF={() => exportPDFTable("Historique des paiements", ["Locataire", "Bien", "Date", "Montant"],
+                    data.payments.filter(p => p.status === "paye").map(p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", p.paid_date || p.due_date, pdfNum(p.amount)]),
+                    "propos-historique-paiements")}
+                />
+              }>
+                <table className="leases">
+                  <thead><tr><th>Locataire</th><th>Bien</th><th>Échéance</th><th>Montant</th><th>Statut</th></tr></thead>
+                  <tbody>
+                    {data.payments.filter(p => p.status === "paye").slice(0, 25).map(p => (
+                      <tr key={p.id}>
+                        <td>{p.leases?.tenants?.full_name || "—"}</td>
+                        <td>{p.leases?.properties?.name || "—"}</td>
+                        <td style={{ fontSize: 12.5, color: "#8A8577" }}>{p.paid_date || p.due_date}</td>
+                        <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                        <td><span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: "#E9F1EA", color: SAGE }}>Payé</span></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {data.payments.filter(p => p.status === "paye").length > 25 && (
+                  <div style={{ fontSize: 12, color: "#8A8577", marginTop: 10, textAlign: "center" }}>
+                    Affichage des 25 paiements les plus récents sur {data.payments.filter(p => p.status === "paye").length} (l'export contient la totalité).
+                  </div>
+                )}
+              </SectionCard>
+            </>
+          )}
+
+          {tab === "maintenance" && (
+            <SectionCard title="Tickets de maintenance" action={
+              <ExportButtons
+                onExcel={() => exportExcel("propos-maintenance", "Tickets", data.maintenance.map(t => ({
+                  Bien: t.properties?.name || "", Catégorie: t.category, Priorité: t.priority, Statut: t.status, Description: t.description || "",
+                })))}
+                onPDF={() => exportPDFTable("Tickets de maintenance", ["Bien", "Catégorie", "Priorité", "Statut"],
+                  data.maintenance.map(t => [t.properties?.name || "—", t.category, t.priority, t.status]),
+                  "propos-maintenance")}
+              />
+            }>
+              {data.maintenance.length === 0 && <div style={{ color: "#8A8577", fontSize: 13 }}>Aucun ticket.</div>}
+              {data.maintenance.map(t => (
+                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid #F0ECE2" }}>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: 13.5 }}>{t.category} — {t.properties?.name}</div>
+                    <div style={{ fontSize: 11.5, color: "#8A8577" }}>Priorité : {t.priority}</div>
+                  </div>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: t.status === "resolu" ? SAGE : CORAL }}>{t.status}</span>
+                </div>
+              ))}
+            </SectionCard>
+          )}
+
+          {tab === "hr" && (
+            <>
+              <div style={{ background: NAVY_DEEP, color: "#fff", padding: "9px 16px", borderRadius: 4, marginBottom: 18, fontSize: 12.5 }}>
+                🛡️ Données confidentielles — rôle Direction uniquement
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, borderBottom: `1px solid ${SAND}` }}>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {[{ key: "employees", label: "Employés" }, { key: "payroll", label: "Fiches de paie" }, { key: "leave", label: "Congés" }].map(s => (
+                    <div key={s.key} onClick={() => setHrTab(s.key)} style={{ padding: "10px 16px", fontSize: 13, cursor: "pointer", color: hrTab === s.key ? NAVY_DEEP : "#8A8577", fontWeight: hrTab === s.key ? 600 : 400, borderBottom: hrTab === s.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>{s.label}</div>
+                  ))}
+                </div>
+                {hrTab === "employees" && (
+                  <button style={{ ...addBtn, marginBottom: 8 }} onClick={() => setEmployeeModal("add")}>+ Ajouter un employé</button>
+                )}
+              </div>
+              {hrTab === "employees" && (
+                <>
+                  {Object.entries(
+                    data.employees.reduce((groups, e) => {
+                      const key = e.buildings?.name || "Siège / Direction";
+                      (groups[key] = groups[key] || []).push(e);
+                      return groups;
+                    }, {})
+                  ).map(([buildingName, emps]) => {
+                    const byRole = emps.reduce((g, e) => {
+                      (g[e.role_title] = g[e.role_title] || []).push(e);
+                      return g;
+                    }, {});
+                    return (
+                      <SectionCard key={buildingName} title={`🏢 ${buildingName}`} style={{ marginBottom: 16 }}
+                        action={<span style={{ fontSize: 12, color: "#8A8577" }}>{emps.length} personne(s)</span>}>
+                        {Object.entries(byRole).map(([role, list]) => (
+                          <div key={role} style={{ marginBottom: 14 }}>
+                            <div style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: GOLD, fontWeight: 600, marginBottom: 8 }}>
+                              {role} ({list.length})
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                              {list.map(e => (
+                                <div key={e.id} onClick={() => setViewingEmployee(e)}
+                                  style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", border: `1px solid ${SAND}`, borderRadius: 4, cursor: "pointer" }}
+                                  onMouseEnter={ev => ev.currentTarget.style.background = IVORY}
+                                  onMouseLeave={ev => ev.currentTarget.style.background = "#fff"}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                                    <PhotoAvatar url={e.photo_url} name={e.full_name} size={32} />
+                                    <div>
+                                      <div style={{ fontSize: 13, fontWeight: 500 }}>{e.full_name}</div>
+                                      <div style={{ fontSize: 11, color: "#8A8577" }}>{e.email}</div>
+                                    </div>
+                                  </div>
+                                  <span style={{
+                                    fontSize: 10.5, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
+                                    background: e.status === "actif" ? "#E9F1EA" : "#FBF3E3",
+                                    color: e.status === "actif" ? SAGE : "#A8862F"
+                                  }}>{e.status}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </SectionCard>
+                    );
+                  })}
+                </>
+              )}
+              {hrTab === "payroll" && (
+                <SectionCard title="Fiches de paie">
+                  <table className="leases">
+                    <thead><tr><th>Employé</th><th>Période</th><th>Brut</th><th>Net</th><th>Statut</th></tr></thead>
+                    <tbody>
+                      {data.payslips.map(p => (
+                        <tr key={p.id}><td>{p.employees?.full_name}</td><td>{p.period}</td>
+                          <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.gross_amount).toLocaleString("fr-FR")} €</td>
+                          <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.net_amount).toLocaleString("fr-FR")} €</td>
+                          <td>{p.status}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </SectionCard>
+              )}
+              {hrTab === "leave" && (
+                <SectionCard title="Demandes de congés">
+                  {data.leaveRequests.map(l => (
+                    <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #F0ECE2" }}>
+                      <div>
+                        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{l.employees?.full_name} — {l.leave_type}</div>
+                        <div style={{ fontSize: 11.5, color: "#8A8577" }}>{l.start_date} → {l.end_date} · {l.days}j</div>
+                      </div>
+                      {l.status === "en_attente" ? (
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => approveLeave(l.id, "approuve")} style={{ background: "#E9F1EA", border: "none", color: SAGE, borderRadius: 3, width: 28, height: 28, cursor: "pointer" }}>✓</button>
+                          <button onClick={() => approveLeave(l.id, "refuse")} style={{ background: "#FBEEEA", border: "none", color: CORAL, borderRadius: 3, width: 28, height: 28, cursor: "pointer" }}>✕</button>
+                        </div>
+                      ) : <span style={{ fontSize: 11, fontWeight: 600, color: l.status === "approuve" ? SAGE : CORAL }}>{l.status}</span>}
+                    </div>
+                  ))}
+                </SectionCard>
+              )}
+            </>
+          )}
+        </div>
+      </main>
+
+      {modal === "property" && (
+        <Modal title="Ajouter un bien" onClose={() => setModal(null)}>
+          <AddPropertyForm buildings={data.buildings} onSubmit={createProperty} submitting={submitting} />
+        </Modal>
+      )}
+      {modal === "tenant" && (
+        <Modal title="Ajouter un locataire" onClose={() => setModal(null)}>
+          <AddTenantForm onSubmit={createTenant} submitting={submitting} />
+        </Modal>
+      )}
+      {modal === "lease" && (
+        <Modal title="Créer un bail" onClose={() => setModal(null)}>
+          <AddLeaseForm properties={data.properties} tenants={data.tenants} onSubmit={createLease} submitting={submitting} />
+        </Modal>
+      )}
+      {editingProperty && (
+        <Modal title="Modifier le bien" onClose={() => setEditingProperty(null)}>
+          <EditPropertyForm
+            property={editingProperty}
+            buildings={data.buildings}
+            submitting={submitting}
+            onSubmit={fields => updateProperty(editingProperty.id, fields)}
+            onDelete={() => deleteProperty(editingProperty.id)}
+          />
+        </Modal>
+      )}
+      {modal === "building" && (
+        <Modal title="Ajouter un immeuble" onClose={() => setModal(null)}>
+          <AddBuildingForm onSubmit={createBuilding} submitting={submitting} />
+        </Modal>
+      )}
+      {editingBuilding && (
+        <Modal title="Modifier l'immeuble" onClose={() => setEditingBuilding(null)}>
+          <EditBuildingForm
+            building={editingBuilding}
+            submitting={submitting}
+            onSubmit={fields => updateBuilding(editingBuilding.id, fields)}
+            onDelete={() => deleteBuilding(editingBuilding.id)}
+          />
+        </Modal>
+      )}
+      {viewingEmployee && (
+        <Modal title="Fiche employé" onClose={() => setViewingEmployee(null)}>
+          <EmployeeCard
+            employee={viewingEmployee}
+            onEdit={() => setEmployeeModal(viewingEmployee)}
+            onDelete={() => deleteEmployee(viewingEmployee.id)}
+          />
+        </Modal>
+      )}
+      {employeeModal && (
+        <Modal title={employeeModal === "add" ? "Ajouter un employé" : "Modifier l'employé"} onClose={() => setEmployeeModal(null)}>
+          <EmployeeForm
+            initial={employeeModal === "add" ? null : employeeModal}
+            buildings={data.buildings}
+            submitting={submitting}
+            uploadingPhoto={uploadingPhoto}
+            onUploadPhoto={handleUploadPhoto}
+            onSubmit={fields => employeeModal === "add" ? createEmployee(fields) : updateEmployee(employeeModal.id, fields)}
+          />
+        </Modal>
+      )}
+      {editingTenant && (
+        <Modal title="Modifier le locataire" onClose={() => setEditingTenant(null)}>
+          <EditTenantForm
+            tenant={editingTenant}
+            submitting={submitting}
+            onSubmit={fields => updateTenant(editingTenant.id, fields)}
+            onDelete={() => deleteTenant(editingTenant.id)}
+            documents={data.documents.filter(d => d.tenant_id === editingTenant.id)}
+            uploadingDoc={uploadingDocument}
+            onUploadDoc={uploadDocumentForTarget}
+            onViewDoc={viewDocument}
+            onDeleteDoc={removeDocument}
+          />
+        </Modal>
+      )}
+      {editingLease && (
+        <Modal title="Modifier le bail" onClose={() => setEditingLease(null)}>
+          <EditLeaseForm
+            lease={editingLease}
+            properties={data.properties}
+            submitting={submitting}
+            onSubmit={fields => updateLease(editingLease.id, fields)}
+            onDelete={() => deleteLease(editingLease)}
+            documents={data.documents.filter(d => d.lease_id === editingLease.id)}
+            uploadingDoc={uploadingDocument}
+            onUploadDoc={uploadDocumentForTarget}
+            onViewDoc={viewDocument}
+            onDeleteDoc={removeDocument}
+          />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
