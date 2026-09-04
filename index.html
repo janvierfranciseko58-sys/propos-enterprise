@@ -157,6 +157,16 @@ async function getSignedDocumentUrl(path, token) {
   const json = await res.json();
   return `${SUPABASE_URL}/storage/v1${json.signedURL}`;
 }
+ async function getSignedPayslipUrl(path, token) {
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/sign/payslips/${path}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ expiresIn: 120 }),
+  });
+  if (!res.ok) throw new Error("Impossible de générer le lien de la fiche de paie");
+  const json = await res.json();
+  return `${SUPABASE_URL}/storage/v1${json.signedURL}`;
+}                                                                                                                                                                   
 async function deleteDocumentFile(path, token) {
   await fetch(`${SUPABASE_URL}/storage/v1/object/documents/${path}`, {
     method: "DELETE",
@@ -172,7 +182,143 @@ async function deleteDocumentFile(path, token) {
 function pdfNum(n) {
   return Math.round(Number(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
 }
+function buildClientPayslipPDF(employeeName, period, gross, net, role, department, employerName) {
+  const doc = new window.jspdf.jsPDF();
+  const cotisationsTotal = Math.max(0, gross - net);
+  const cotisationLines = [
+    { label: "Sécurité sociale - Maladie", taux: 0.75, weight: 5 },
+    { label: "Assurance vieillesse plafonnée", taux: 6.90, weight: 35 },
+    { label: "Assurance vieillesse déplafonnée", taux: 0.40, weight: 4 },
+    { label: "Retraite complémentaire (T1)", taux: 3.15, weight: 15 },
+    { label: "Contribution équilibre général", taux: 0.86, weight: 5 },
+    { label: "CSG déductible", taux: 6.80, weight: 28 },
+    { label: "CSG/CRDS non déductible", taux: 2.90, weight: 8 },
+  ];
+  const csgCrdsNDAmount = cotisationsTotal * 8 / 100;
+  const netImposable = net + csgCrdsNDAmount;
 
+  doc.setFillColor(10, 38, 71);
+  doc.rect(0, 0, 210, 30, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(16);
+  doc.text(employerName, 14, 14);
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(200, 205, 215);
+  doc.text("Bulletin de paie", 14, 22);
+
+  let y = 42;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text("EMPLOYEUR", 14, y);
+  doc.text("SALARIÉ", 120, y);
+
+  y += 7;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(30, 30, 30);
+  doc.text(employerName, 14, y);
+  doc.text(employeeName, 120, y);
+
+  y += 6;
+  doc.setFontSize(9);
+  doc.setTextColor(110, 110, 110);
+  const posteLine = [role, department].filter(Boolean).join(" — ");
+  if (posteLine) doc.text(posteLine, 120, y);
+
+  y += 10;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text("PÉRIODE", 14, y);
+
+  y += 7;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(30, 30, 30);
+  doc.text(period, 14, y);
+
+  y += 8;
+  doc.setDrawColor(220, 220, 220);
+  doc.line(14, y, 196, y);
+
+  y += 10;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(10, 38, 71);
+  doc.text("Détail de la rémunération", 14, y);
+
+  y += 8;
+  doc.setFontSize(9);
+  doc.setTextColor(140, 140, 140);
+  doc.text("Rubrique", 14, y);
+  doc.text("Taux", 150, y, { align: "right" });
+  doc.text("Montant", 182, y, { align: "right" });
+  y += 2;
+  doc.setDrawColor(230, 230, 230);
+  doc.line(14, y, 196, y);
+
+  y += 7;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  doc.text("Salaire de base", 14, y);
+  doc.text(pdfNum(gross), 182, y, { align: "right" });
+
+  y += 8;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.setTextColor(120, 120, 120);
+  doc.text("Cotisations salariales", 14, y);
+
+  y += 6;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(70, 70, 70);
+  for (const line of cotisationLines) {
+    const montant = cotisationsTotal * line.weight / 100;
+    doc.text(line.label, 16, y);
+    doc.text(`${line.taux.toFixed(2)} %`, 150, y, { align: "right" });
+    doc.text(`- ${pdfNum(montant)}`, 182, y, { align: "right" });
+    y += 6;
+  }
+
+  doc.setDrawColor(230, 230, 230);
+  doc.line(14, y, 196, y);
+  y += 7;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.setTextColor(30, 30, 30);
+  doc.text("Total cotisations", 14, y);
+  doc.text(`- ${pdfNum(cotisationsTotal)}`, 182, y, { align: "right" });
+
+  y += 9;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(110, 110, 110);
+  doc.text("Net imposable (estimé)", 14, y);
+  doc.text(pdfNum(netImposable), 182, y, { align: "right" });
+
+  y += 10;
+  doc.setFillColor(240, 243, 248);
+  doc.rect(14, y, 182, 18, "F");
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(12);
+  doc.setTextColor(10, 38, 71);
+  doc.text("Net à payer", 20, y + 11);
+  doc.setFontSize(14);
+  doc.text(pdfNum(net), 182, y + 11, { align: "right" });
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(140, 140, 140);
+  doc.text("Ce document est à conserver sans limitation de durée. Montants estimés à titre indicatif.", 14, 275);
+  doc.text(`Document généré le ${new Date().toLocaleDateString("fr-FR")} — ${employerName}`, 14, 280);
+
+  return doc;
+}
 function exportExcel(filename, sheetName, rows) {
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
@@ -1024,7 +1170,7 @@ function App() {
         if (profile.role === "direction") {
           [employees, payslips, leaveRequests] = await Promise.all([
             query("employees", token, "?select=*,buildings(name)"),
-            query("payslips", token, "?select=*,employees(full_name)"),
+            query("payslips", token, "?select=*,employees(full_name,role_title,department)"),
             query("leave_requests", token, "?select=*,employees(full_name)"),
           ]);
         }
@@ -1101,6 +1247,20 @@ function App() {
     try {
       const url = await getSignedDocumentUrl(doc.storage_path, session.access_token);
       window.open(url, "_blank");
+    } catch (e) { alert(e.message); }
+  }
+   async function viewPayslip(p) {
+    try {
+      if (p.pdf_path) {
+        const url = await getSignedPayslipUrl(p.pdf_path, session.access_token);
+        window.open(url, "_blank");
+      } else {
+        const doc = buildClientPayslipPDF(
+          p.employees?.full_name || "—", p.period, Number(p.gross_amount), Number(p.net_amount),
+          p.employees?.role_title || null, p.employees?.department || null, "PropOS Enterprise"
+        );
+        window.open(doc.output("bloburl"), "_blank");
+      }
     } catch (e) { alert(e.message); }
   }
 
@@ -1680,20 +1840,27 @@ function App() {
                   })}
                 </>
               )}
-              {hrTab === "payroll" && (
+                            {hrTab === "payroll" && (
                 <SectionCard title="Fiches de paie">
                   <table className="leases">
-                    <thead><tr><th>Employé</th><th>Période</th><th>Brut</th><th>Net</th><th>Statut</th></tr></thead>
+                    <thead><tr><th>Employé</th><th>Période</th><th>Brut</th><th>Net</th><th>Statut</th><th>Fiche</th></tr></thead>
                     <tbody>
                       {data.payslips.map(p => (
                         <tr key={p.id}><td>{p.employees?.full_name}</td><td>{p.period}</td>
                           <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.gross_amount).toLocaleString("fr-FR")} €</td>
                           <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.net_amount).toLocaleString("fr-FR")} €</td>
-                          <td>{p.status}</td></tr>
+                          <td>{p.status}</td>
+                          <td>
+                            <span onClick={() => viewPayslip(p)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>
+                              {p.pdf_path ? "Voir le PDF" : "Générer & voir"}
+                            </span>
+                          </td>
+                        </tr>
                       ))}
                     </tbody>
                   </table>
                 </SectionCard>
+              )}
               )}
               {hrTab === "leave" && (
                 <SectionCard title="Demandes de congés">
