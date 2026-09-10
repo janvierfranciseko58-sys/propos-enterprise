@@ -166,7 +166,38 @@ async function getSignedDocumentUrl(path, token) {
   if (!res.ok) throw new Error("Impossible de générer le lien de la fiche de paie");
   const json = await res.json();
   return `${SUPABASE_URL}/storage/v1${json.signedURL}`;
-}                                                                                                                                                                   
+} 
+   function normalizeStr(s) {
+    return (s || "")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+  }
+  function matchEmployeeToFile(filename, employees) {
+    const base = filename.replace(/\.pdf$/i, "");
+    const normBase = normalizeStr(base);
+    let best = null;
+    for (const e of employees) {
+      const normName = normalizeStr(e.full_name);
+      if (normName && (normBase.includes(normName) || normName.includes(normBase))) {
+        if (!best || normName.length > normalizeStr(best.full_name).length) best = e;
+      }
+    }
+    return best;
+  }
+  async function uploadPayslipFile(file, path, token) {
+    const res = await fetch(`${SUPABASE_URL}/storage/v1/object/payslips/${path}`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type || "application/pdf", "x-upsert": "true" },
+      body: file,
+    });
+    if (!res.ok) {
+      let detail = "";
+      try { const j = await res.json(); detail = j.message || ""; } catch (_) {}
+      throw new Error(detail || "Échec de l'envoi du fichier");
+    }
+    return path;
+  }
 async function deleteDocumentFile(path, token) {
   await fetch(`${SUPABASE_URL}/storage/v1/object/documents/${path}`, {
     method: "DELETE",
@@ -843,6 +874,94 @@ function EmployeeForm({ initial, buildings, onSubmit, submitting, onUploadPhoto,
   );
 }
 
+ function BulkPayslipImport({ payslips, employees, session, onDone }) {
+  const periods = [...new Set(payslips.map(p => p.period))];
+  const [period, setPeriod] = useState(periods[0] || "");
+  const [items, setItems] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [summary, setSummary] = useState(null);
+
+  function handleFiles(fileList) {
+    const mapped = Array.from(fileList).map(file => ({
+      file, employee: matchEmployeeToFile(file.name, employees),
+    }));
+    setItems(mapped);
+    setSummary(null);
+  }
+
+  function setEmployeeForItem(idx, employeeId) {
+    const emp = employees.find(e => e.id === employeeId) || null;
+    setItems(prev => prev.map((it, i) => i === idx ? { ...it, employee: emp } : it));
+  }
+
+  async function confirmImport() {
+    setUploading(true);
+    let done = 0, skipped = 0; const errors = [];
+    for (const it of items) {
+      if (!it.employee) { skipped++; continue; }
+      const payslip = payslips.find(p => p.employee_id === it.employee.id && p.period === period);
+      if (!payslip) { skipped++; continue; }
+      try {
+        const ext = (it.file.name.split(".").pop() || "pdf");
+        const path = `${it.employee.id}-${period.replace(/\s+/g, "_")}.${ext}`;
+        await uploadPayslipFile(it.file, path, session.access_token);
+        await patchRow("payslips", payslip.id, session.access_token, { pdf_path: path });
+        done++;
+      } catch (e) { errors.push(`${it.employee.full_name} : ${e.message}`); }
+    }
+    setUploading(false);
+    setSummary({ done, skipped, errors });
+    onDone();
+  }
+
+  return (
+    <div style={{ border: `1px dashed ${SAND}`, borderRadius: 4, padding: 18, marginBottom: 18, background: "#fff" }}>
+      <Field label="Période concernée">
+        <select style={inputStyle} value={period} onChange={e => setPeriod(e.target.value)}>
+          {periods.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+      </Field>
+      <label style={{ fontSize: 12.5, color: NAVY, cursor: "pointer", border: `1px solid ${SAND}`, borderRadius: 4, padding: "9px 12px", display: "inline-block" }}>
+        Choisir les fichiers PDF…
+        <input type="file" accept="application/pdf" multiple style={{ display: "none" }}
+          onChange={e => handleFiles(e.target.files)} />
+      </label>
+
+      {items.length > 0 && (
+        <div style={{ marginTop: 14 }}>
+          <table className="leases">
+            <thead><tr><th>Fichier</th><th>Employé détecté</th><th></th></tr></thead>
+            <tbody>
+              {items.map((it, idx) => (
+                <tr key={idx}>
+                  <td style={{ fontSize: 12.5 }}>{it.file.name}</td>
+                  <td>
+                    <select style={{ ...inputStyle, padding: "5px 8px" }} value={it.employee?.id || ""} onChange={e => setEmployeeForItem(idx, e.target.value)}>
+                      <option value="">— Non reconnu —</option>
+                      {employees.map(e => <option key={e.id} value={e.id}>{e.full_name}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ fontSize: 11, color: it.employee ? SAGE : CORAL }}>{it.employee ? "✓ Reconnu" : "⚠ À vérifier"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <button style={{ ...primaryBtn, marginTop: 14, width: "auto", padding: "10px 20px" }} disabled={uploading} onClick={confirmImport}>
+            {uploading ? "Import en cours…" : `Importer ${items.length} fichier(s)`}
+          </button>
+        </div>
+      )}
+
+      {summary && (
+        <div style={{ marginTop: 14, fontSize: 12.5 }}>
+          <div style={{ color: SAGE }}>{summary.done} fiche(s) importée(s) avec succès.</div>
+          {summary.skipped > 0 && <div style={{ color: CORAL }}>{summary.skipped} fichier(s) ignoré(s) (employé non reconnu ou aucune fiche existante pour cette période).</div>}
+          {summary.errors.map((e, i) => <div key={i} style={{ color: CORAL }}>{e}</div>)}
+        </div>
+      )}
+    </div>
+  );
+}
 function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
   const [mode, setMode] = useState("staff"); // 'staff' | 'tenant'
   const [signupMode, setSignupMode] = useState(false);
@@ -1152,6 +1271,13 @@ function App() {
   }
 
 
+   const [showBulkImport, setShowBulkImport] = useState(false);
+  async function refreshPayslips() {
+    try {
+      const payslips = await query("payslips", session.access_token, "?select=*,employees(full_name,role_title,department)");
+      setData(d => ({ ...d, payslips }));
+    } catch (e) { alert(e.message); }
+  }
   useEffect(() => {
     if (!session || !profile) return;
     (async () => {
@@ -1840,26 +1966,36 @@ function App() {
                   })}
                 </>
               )}
-                            {hrTab === "payroll" && (
-                <SectionCard title="Fiches de paie">
-                  <table className="leases">
-                    <thead><tr><th>Employé</th><th>Période</th><th>Brut</th><th>Net</th><th>Statut</th><th>Fiche</th></tr></thead>
-                    <tbody>
-                      {data.payslips.map(p => (
-                        <tr key={p.id}><td>{p.employees?.full_name}</td><td>{p.period}</td>
-                          <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.gross_amount).toLocaleString("fr-FR")} €</td>
-                          <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.net_amount).toLocaleString("fr-FR")} €</td>
-                          <td>{p.status}</td>
-                          <td>
-                            <span onClick={() => viewPayslip(p)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>
-                              {p.pdf_path ? "Voir le PDF" : "Générer & voir"}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </SectionCard>
+                                          {hrTab === "payroll" && (
+                <>
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+                    <button style={addBtn} onClick={() => setShowBulkImport(!showBulkImport)}>
+                      {showBulkImport ? "Fermer l'import" : "⬆ Importer des fiches (PDF)"}
+                    </button>
+                  </div>
+                  {showBulkImport && (
+                    <BulkPayslipImport payslips={data.payslips} employees={data.employees} session={session} onDone={refreshPayslips} />
+                  )}
+                  <SectionCard title="Fiches de paie">
+                    <table className="leases">
+                      <thead><tr><th>Employé</th><th>Période</th><th>Brut</th><th>Net</th><th>Statut</th><th>Fiche</th></tr></thead>
+                      <tbody>
+                        {data.payslips.map(p => (
+                          <tr key={p.id}><td>{p.employees?.full_name}</td><td>{p.period}</td>
+                            <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.gross_amount).toLocaleString("fr-FR")} €</td>
+                            <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.net_amount).toLocaleString("fr-FR")} €</td>
+                            <td>{p.status}</td>
+                            <td>
+                              <span onClick={() => viewPayslip(p)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>
+                                {p.pdf_path ? "Voir le PDF" : "Générer & voir"}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </SectionCard>
+                </>
               )}
               )}
               {hrTab === "leave" && (
