@@ -1,0 +1,8 @@
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', sans-serif; background: #F7F4EE; }
+  .navitem:hover { background: rgba(201,168,76,0.1); }
+  table.leases { border-collapse: collapse; width: 100%; }
+  table.leases th { text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8A8577; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #E7E0D2; }
+  table.leases td { padding: 13px 12px; border-bottom: 1px solid #F0ECE2; font-size: 13.5px; }
+  .spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
