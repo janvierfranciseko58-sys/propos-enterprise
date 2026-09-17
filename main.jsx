@@ -946,6 +946,7 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
   const [signupMode, setSignupMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showSignupPassword, setShowSignupPassword] = useState(false);
 
   const tabBtn = (active) => ({
     flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "center",
@@ -979,8 +980,25 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
             <input value={email} onChange={e => setEmail(e.target.value)} type="email"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 }} />
             <label style={{ fontSize: 12, color: "#8A8577" }}>Choisir un mot de passe</label>
-            <input value={password} onChange={e => setPassword(e.target.value)} type="password"
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 18px", fontSize: 13.5 }} />
+            <div style={{ position: "relative", margin: "4px 0 18px" }}>
+              <input value={password} onChange={e => setPassword(e.target.value)} type={showSignupPassword ? "text" : "password"}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 40px 10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, fontSize: 13.5 }} />
+              <span onClick={() => setShowSignupPassword(v => !v)}
+                title={showSignupPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8A8577", display: "flex", lineHeight: 0 }}>
+                {showSignupPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-10-8-10-8a18.7 18.7 0 0 1 4.22-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 10 8 10 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </span>
+            </div>
             {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
             {signupInfo && <div style={{ background: "#E9F1EA", color: SAGE, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{signupInfo}</div>}
             <button onClick={() => onTenantSignup(email, password)} disabled={loading}
