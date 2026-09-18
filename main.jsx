@@ -683,6 +683,28 @@ function EditBuildingForm({ building, onSubmit, onDelete, submitting }) {
   );
 }
 
+function InviteStaffForm({ onSubmit, submitting }) {
+  const [f, setF] = useState({ email: "", full_name: "", role: "finance" });
+  const set = k => e => setF({ ...f, [k]: e.target.value });
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 14, lineHeight: 1.5 }}>
+        La personne invitée pourra créer son accès depuis « Espace Équipe → Première connexion ? Créer mon accès → » avec cette adresse email.
+      </div>
+      <Field label="Email"><input style={inputStyle} type="email" value={f.email} onChange={set("email")} placeholder="prenom.nom@exemple.com" /></Field>
+      <Field label="Nom complet"><input style={inputStyle} value={f.full_name} onChange={set("full_name")} placeholder="Prénom Nom" /></Field>
+      <Field label="Rôle">
+        <select style={inputStyle} value={f.role} onChange={set("role")}>
+          {Object.entries(roles).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
+        </select>
+      </Field>
+      <button style={primaryBtn} disabled={submitting || !f.email || !f.full_name} onClick={() => onSubmit(f)}>
+        {submitting ? "Envoi…" : "Envoyer l'invitation"}
+      </button>
+    </div>
+  );
+}
+
 function PhotoAvatar({ url, name, size }) {
   const initials = (name || "?").split(" ").map(n => n[0]).join("").slice(0, 2);
   if (url) {
@@ -941,12 +963,13 @@ function EmployeeForm({ initial, buildings, onSubmit, submitting, onUploadPhoto,
     </div>
   );
 }
-function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
+function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, signupInfo }) {
   const [mode, setMode] = useState("staff"); // 'staff' | 'tenant'
   const [signupMode, setSignupMode] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showSignupPassword, setShowSignupPassword] = useState(false);
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   const tabBtn = (active) => ({
     flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "center",
@@ -971,10 +994,12 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
           <div style={tabBtn(mode === "tenant")} onClick={() => setMode("tenant")}>Espace Locataire</div>
         </div>
 
-        {mode === "tenant" && signupMode ? (
+        {signupMode ? (
           <>
             <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 14, lineHeight: 1.5 }}>
-              Utilise la <b>même adresse email</b> que celle enregistrée par ton agence sur ton bail — ton accès sera relié automatiquement.
+              {mode === "tenant"
+                ? <>Utilise la <b>même adresse email</b> que celle enregistrée par ton agence sur ton bail — ton accès sera relié automatiquement.</>
+                : <>Utilise l'<b>adresse email</b> sur laquelle tu as reçu ton invitation de la Direction — ton accès sera relié automatiquement.</>}
             </div>
             <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
             <input value={email} onChange={e => setEmail(e.target.value)} type="email"
@@ -1001,7 +1026,7 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
             </div>
             {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
             {signupInfo && <div style={{ background: "#E9F1EA", color: SAGE, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{signupInfo}</div>}
-            <button onClick={() => onTenantSignup(email, password)} disabled={loading}
+            <button onClick={() => (mode === "tenant" ? onTenantSignup(email, password) : onStaffSignup(email, password))} disabled={loading}
               style={{ width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }}>
               {loading ? "Création…" : "Créer mon accès"}
             </button>
@@ -1015,18 +1040,33 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, signupInfo }) {
             <input value={email} onChange={e => setEmail(e.target.value)} type="email"
               style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 }} />
             <label style={{ fontSize: 12, color: "#8A8577" }}>Mot de passe</label>
-            <input value={password} onChange={e => setPassword(e.target.value)} type="password"
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 18px", fontSize: 13.5 }} />
+            <div style={{ position: "relative", margin: "4px 0 18px" }}>
+              <input value={password} onChange={e => setPassword(e.target.value)} type={showLoginPassword ? "text" : "password"}
+                style={{ width: "100%", boxSizing: "border-box", padding: "10px 40px 10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, fontSize: 13.5 }} />
+              <span onClick={() => setShowLoginPassword(v => !v)}
+                title={showLoginPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8A8577", display: "flex", lineHeight: 0 }}>
+                {showLoginPassword ? (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-10-8-10-8a18.7 18.7 0 0 1 4.22-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 10 8 10 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                    <line x1="1" y1="1" x2="23" y2="23" />
+                  </svg>
+                ) : (
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                )}
+              </span>
+            </div>
             {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
             <button onClick={() => onLogin(email, password, mode)} disabled={loading}
               style={{ width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }}>
               {loading ? "Connexion…" : "Se connecter"}
             </button>
-            {mode === "tenant" && (
-              <div style={{ textAlign: "center", marginTop: 14 }}>
-                <span onClick={() => setSignupMode(true)} style={{ fontSize: 12, color: NAVY, cursor: "pointer" }}>Première connexion ? Créer mon accès →</span>
-              </div>
-            )}
+            <div style={{ textAlign: "center", marginTop: 14 }}>
+              <span onClick={() => setSignupMode(true)} style={{ fontSize: 12, color: NAVY, cursor: "pointer" }}>Première connexion ? Créer mon accès →</span>
+            </div>
           </>
         )}
       </div>
@@ -1212,7 +1252,9 @@ function App() {
   const [signupInfo, setSignupInfo] = useState("");
   const [tab, setTab] = useState("overview");
   const [hrTab, setHrTab] = useState("employees");
-  const [data, setData] = useState({ buildings: [], properties: [], tenants: [], leases: [], payments: [], maintenance: [], employees: [], payslips: [], leaveRequests: [], documents: [] });
+  const [data, setData] = useState({ buildings: [], properties: [], tenants: [], leases: [], payments: [], maintenance: [], employees: [], payslips: [], leaveRequests: [], documents: [], staffInvites: [] });
+  const [inviteModal, setInviteModal] = useState(false);
+  const [invitingStaff, setInvitingStaff] = useState(false);
   const [dataError, setDataError] = useState("");
   const [modal, setModal] = useState(null); // 'building' | 'property' | 'tenant' | 'lease' | null
   const [editingProperty, setEditingProperty] = useState(null);
@@ -1263,6 +1305,25 @@ function App() {
     finally { setAuthLoading(false); }
   }
 
+  async function handleStaffSignup(email, password) {
+    setAuthError(""); setSignupInfo(""); setAuthLoading(true);
+    try {
+      const result = await signUp(email, password);
+      if (result.access_token) {
+        const profiles = await query("profiles", result.access_token, `?id=eq.${result.user.id}&select=*`);
+        if (!profiles.length) {
+          setSignupInfo("Compte créé, mais aucune invitation n'est encore associée à cette adresse email. Contacte la Direction.");
+          return;
+        }
+        setSession(result);
+        setProfile(profiles[0]);
+      } else {
+        setSignupInfo("Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.");
+      }
+    } catch (e) { setAuthError(e.message); }
+    finally { setAuthLoading(false); }
+  }
+
   function handleLogout() {
     setSession(null); setProfile(null); setTenantProfile(null);
   }
@@ -1288,20 +1349,38 @@ function App() {
           query("maintenance_tickets", token, "?select=*,properties(name)"),
           query("documents", token, "?select=*&order=uploaded_at.desc"),
         ]);
-        let employees = [], payslips = [], leaveRequests = [];
+        let employees = [], payslips = [], leaveRequests = [], staffInvites = [];
         if (profile.role === "direction") {
-          [employees, payslips, leaveRequests] = await Promise.all([
+          [employees, payslips, leaveRequests, staffInvites] = await Promise.all([
             query("employees", token, "?select=*,buildings(name)"),
             query("payslips", token, "?select=*,employees(full_name,role_title,department)"),
             query("leave_requests", token, "?select=*,employees(full_name)"),
+            query("staff_invites", token, "?select=*&order=created_at.desc"),
           ]);
         }
-        setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents });
+        setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites });
       } catch (e) { setDataError(e.message); }
     })();
   }, [session, profile]);
 
   const allowedTabs = profile ? PERMISSIONS[profile.role] : [];
+
+  async function createStaffInvite(fields) {
+    setInvitingStaff(true);
+    try {
+      const [row] = await insertRow("staff_invites", session.access_token, { ...fields, organization_id: profile.organization_id });
+      setData(d => ({ ...d, staffInvites: [row, ...d.staffInvites] }));
+      setInviteModal(false);
+    } catch (e) { alert(e.message); }
+    finally { setInvitingStaff(false); }
+  }
+
+  async function revokeStaffInvite(id) {
+    try {
+      await deleteRow("staff_invites", id, session.access_token);
+      setData(d => ({ ...d, staffInvites: d.staffInvites.filter(i => i.id !== id) }));
+    } catch (e) { alert(e.message); }
+  }
 
   async function createBuilding(fields) {
     setSubmitting(true);
@@ -1584,7 +1663,7 @@ function App() {
   }, [data]);
 
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
-  if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} error={authError} signupInfo={signupInfo} loading={authLoading} />;
+  if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} />;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", color: INK }}>
@@ -1905,12 +1984,15 @@ function App() {
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, borderBottom: `1px solid ${SAND}` }}>
                 <div style={{ display: "flex", gap: 6 }}>
-                  {[{ key: "employees", label: "Employés" }, { key: "payroll", label: "Fiches de paie" }, { key: "leave", label: "Congés" }].map(s => (
+                  {[{ key: "employees", label: "Employés" }, { key: "payroll", label: "Fiches de paie" }, { key: "leave", label: "Congés" }, { key: "invites", label: "Accès Équipe" }].map(s => (
                     <div key={s.key} onClick={() => setHrTab(s.key)} style={{ padding: "10px 16px", fontSize: 13, cursor: "pointer", color: hrTab === s.key ? NAVY_DEEP : "#8A8577", fontWeight: hrTab === s.key ? 600 : 400, borderBottom: hrTab === s.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>{s.label}</div>
                   ))}
                 </div>
                 {hrTab === "employees" && (
                   <button style={{ ...addBtn, marginBottom: 8 }} onClick={() => setEmployeeModal("add")}>+ Ajouter un employé</button>
+                )}
+                {hrTab === "invites" && (
+                  <button style={{ ...addBtn, marginBottom: 8 }} onClick={() => setInviteModal(true)}>+ Inviter un membre</button>
                 )}
               </div>
               {hrTab === "employees" && (
@@ -2012,6 +2094,34 @@ function App() {
                   ))}
                 </SectionCard>
               )}
+              {hrTab === "invites" && (
+                <SectionCard title="Invitations en attente">
+                  {data.staffInvites.filter(i => !i.used_at).length === 0 && (
+                    <div style={{ fontSize: 13, color: "#8A8577" }}>Aucune invitation en attente.</div>
+                  )}
+                  {data.staffInvites.filter(i => !i.used_at).map(i => (
+                    <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #F0ECE2" }}>
+                      <div>
+                        <div style={{ fontSize: 13.5, fontWeight: 500 }}>{i.full_name || i.email}</div>
+                        <div style={{ fontSize: 11.5, color: "#8A8577" }}>{i.email} · {roles[i.role] || i.role}</div>
+                      </div>
+                      <span onClick={() => { if (confirm(`Annuler l'invitation de ${i.email} ?`)) revokeStaffInvite(i.id); }}
+                        style={{ fontSize: 11.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Révoquer</span>
+                    </div>
+                  ))}
+                  {data.staffInvites.some(i => i.used_at) && (
+                    <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${SAND}` }}>
+                      <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 8 }}>Invitations utilisées</div>
+                      {data.staffInvites.filter(i => i.used_at).map(i => (
+                        <div key={i.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
+                          <div style={{ fontSize: 12.5 }}>{i.full_name || i.email} — {roles[i.role] || i.role}</div>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: SAGE }}>Compte créé</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </SectionCard>
+              )}
             </>
           )}
         </div>
@@ -2046,6 +2156,11 @@ function App() {
       {modal === "building" && (
         <Modal title="Ajouter un immeuble" onClose={() => setModal(null)}>
           <AddBuildingForm onSubmit={createBuilding} submitting={submitting} />
+        </Modal>
+      )}
+      {inviteModal && (
+        <Modal title="Inviter un membre de l'équipe" onClose={() => setInviteModal(false)}>
+          <InviteStaffForm onSubmit={createStaffInvite} submitting={invitingStaff} />
         </Modal>
       )}
       {editingBuilding && (
