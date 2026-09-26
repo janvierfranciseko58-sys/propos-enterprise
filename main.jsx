@@ -52,6 +52,27 @@ async function signUp(email, password) {
   if (!res.ok) throw new Error(data.error_description || data.msg || "Impossible de créer le compte");
   return data;
 }
+async function refreshSession(refreshToken) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ refresh_token: refreshToken }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error_description || data.msg || "Session expirée");
+  return data;
+}
+// Persistance de la session (même principe que supabase-js)
+const SESSION_KEY = "propos.session";
+function saveSession(s) {
+  try {
+    if (s) localStorage.setItem(SESSION_KEY, JSON.stringify({ ...s, expires_at: s.expires_at || Math.floor(Date.now() / 1000) + (s.expires_in || 3600) }));
+    else localStorage.removeItem(SESSION_KEY);
+  } catch (_) {}
+}
+function loadSession() {
+  try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { return null; }
+}
 async function query(table, token, params = "") {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, {
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
@@ -92,9 +113,9 @@ async function deleteRow(table, id, token) {
     throw new Error(detail || `Erreur suppression ${table}`);
   }
 }
-async function uploadPhoto(file, token, employeeId) {
+async function uploadPhoto(file, token, organizationId, employeeId) {
   const ext = file.name.split(".").pop();
-  const path = `${employeeId}-${Date.now()}.${ext}`;
+  const path = `${organizationId}/${employeeId}-${Date.now()}.${ext}`;
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/employee-photos/${path}`, {
     method: "POST",
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": file.type, "x-upsert": "true" },
@@ -140,23 +161,25 @@ async function getSignedDocumentUrl(path, token) {
   const json = await res.json();
   return `${SUPABASE_URL}/storage/v1${json.signedURL}`;
 } 
-   function normalizeStr(s) {
+  function nameTokens(s) {
     return (s || "")
-      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")
       .toLowerCase()
-      .replace(/[^a-z0-9]/g, "");
+      .split(/[^a-z0-9]+/)
+      .filter(t => t.length >= 2);
   }
+  // Un fichier n'est rattaché que si TOUS les mots du nom (prénom + nom) y figurent,
+  // et seulement s'il n'y a qu'un seul salarié possible. Sinon : « À vérifier ».
   function matchEmployeeToFile(filename, employees) {
-    const base = filename.replace(/\.pdf$/i, "");
-    const normBase = normalizeStr(base);
-    let best = null;
-    for (const e of employees) {
-      const normName = normalizeStr(e.full_name);
-      if (normName && (normBase.includes(normName) || normName.includes(normBase))) {
-        if (!best || normName.length > normalizeStr(best.full_name).length) best = e;
-      }
-    }
-    return best;
+    const fileTokens = new Set(nameTokens(filename.replace(/\.pdf$/i, "")));
+    const candidates = employees.filter(e => {
+      const tokens = nameTokens(e.full_name);
+      return tokens.length >= 2 && tokens.every(t => fileTokens.has(t));
+    });
+    if (!candidates.length) return null;
+    const maxTokens = Math.max(...candidates.map(e => nameTokens(e.full_name).length));
+    const best = candidates.filter(e => nameTokens(e.full_name).length === maxTokens);
+    return best.length === 1 ? best[0] : null;
   }
   async function uploadPayslipFile(file, path, token) {
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/payslips/${path}`, {
@@ -904,7 +927,7 @@ function EmployeeForm({ initial, buildings, onSubmit, submitting, onUploadPhoto,
       if (!payslip) { skipped++; continue; }
       try {
         const ext = (it.file.name.split(".").pop() || "pdf");
-        const path = `${it.employee.id}-${period.replace(/\s+/g, "_")}.${ext}`;
+        const path = `${payslip.organization_id}/${it.employee.id}-${period.replace(/\s+/g, "_")}.${ext}`;
         await uploadPayslipFile(it.file, path, session.access_token);
         await patchRow("payslips", payslip.id, session.access_token, { pdf_path: path });
         done++;
@@ -1267,21 +1290,60 @@ function App() {
   const [editingLease, setEditingLease] = useState(null);
   const [submitting, setSubmitting] = useState(false);
 
+  const [restoring, setRestoring] = useState(() => !!loadSession());
+
+  // Rattache la session au profil équipe ou locataire, puis la mémorise
+  async function establishSession(auth, mode) {
+    if (mode === "tenant") {
+      const tenantRows = await query("tenants", auth.access_token, `?tenant_user_id=eq.${auth.user.id}&select=*`);
+      if (!tenantRows.length) throw new Error("Aucun accès locataire n'est associé à ce compte. Vérifie ton email ou contacte ta gestion locative.");
+      setTenantProfile(tenantRows[0]);
+    } else {
+      const profiles = await query("profiles", auth.access_token, `?id=eq.${auth.user.id}&select=*`);
+      if (!profiles.length) throw new Error("Aucun profil trouvé pour cet utilisateur.");
+      setProfile(profiles[0]);
+    }
+    const stored = { ...auth, mode };
+    saveSession(stored);
+    setSession(loadSession() || stored);
+  }
+
+  // Restauration de la session au rechargement de la page
+  useEffect(() => {
+    const stored = loadSession();
+    if (!stored) return;
+    (async () => {
+      try {
+        const fresh = await refreshSession(stored.refresh_token);
+        await establishSession(fresh, stored.mode);
+      } catch (_) { saveSession(null); }
+      finally { setRestoring(false); }
+    })();
+  }, []);
+
+  // Renouvellement du jeton une minute avant son expiration
+  useEffect(() => {
+    if (!session?.refresh_token) return;
+    const expiresAt = session.expires_at || Math.floor(Date.now() / 1000) + (session.expires_in || 3600);
+    const delay = Math.max(5000, (expiresAt - 60) * 1000 - Date.now());
+    const timer = setTimeout(async () => {
+      try {
+        const fresh = await refreshSession(session.refresh_token);
+        saveSession({ ...fresh, mode: session.mode });
+        setSession(loadSession() || { ...fresh, mode: session.mode });
+      } catch (_) {
+        handleLogout();
+        setAuthError("Ta session a expiré, reconnecte-toi.");
+      }
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [session]);
+
   async function handleLogin(email, password, mode) {
     setAuthError(""); setSignupInfo(""); setAuthLoading(true);
     try {
       const auth = await signIn(email, password);
-      if (mode === "tenant") {
-        const tenantRows = await query("tenants", auth.access_token, `?tenant_user_id=eq.${auth.user.id}&select=*`);
-        if (!tenantRows.length) throw new Error("Aucun accès locataire n'est associé à ce compte. Vérifie ton email ou contacte ta gestion locative.");
-        setSession(auth);
-        setTenantProfile(tenantRows[0]);
-      } else {
-        const profiles = await query("profiles", auth.access_token, `?id=eq.${auth.user.id}&select=*`);
-        if (!profiles.length) throw new Error("Aucun profil trouvé pour cet utilisateur.");
-        setSession(auth);
-        setProfile(profiles[0]);
-      }
+      await establishSession(auth, mode);
     } catch (e) { setAuthError(e.message); }
     finally { setAuthLoading(false); }
   }
@@ -1296,8 +1358,7 @@ function App() {
           setSignupInfo("Compte créé, mais aucun bail n'est encore associé à cette adresse email. Contacte ta gestion locative.");
           return;
         }
-        setSession(result);
-        setTenantProfile(tenantRows[0]);
+        await establishSession(result, "tenant");
       } else {
         setSignupInfo("Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.");
       }
@@ -1315,8 +1376,7 @@ function App() {
           setSignupInfo("Compte créé, mais aucune invitation n'est encore associée à cette adresse email. Contacte la Direction.");
           return;
         }
-        setSession(result);
-        setProfile(profiles[0]);
+        await establishSession(result, "staff");
       } else {
         setSignupInfo("Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.");
       }
@@ -1325,6 +1385,10 @@ function App() {
   }
 
   function handleLogout() {
+    if (session?.access_token) {
+      fetch(`${SUPABASE_URL}/auth/v1/logout`, { method: "POST", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` } }).catch(() => {});
+    }
+    saveSession(null);
     setSession(null); setProfile(null); setTenantProfile(null);
   }
 
@@ -1340,14 +1404,17 @@ function App() {
     (async () => {
       try {
         const token = session.access_token;
+        // Ne charger que ce que le rôle a le droit de voir (la base applique aussi ces règles via RLS)
+        const can = PERMISSIONS[profile.role] || [];
+        const canTenants = can.includes("tenants");
         const [buildings, properties, tenants, leases, payments, maintenance, documents] = await Promise.all([
           query("buildings", token, "?select=*&order=name.asc"),
           query("properties", token, "?select=*,buildings(name,address)"),
-          query("tenants", token, "?select=*"),
-          query("leases", token, "?select=*,tenants(full_name,email),properties(name,address)"),
-          query("payments", token, "?select=*,leases(tenants(full_name),properties(name))&order=due_date.desc"),
+          canTenants ? query("tenants", token, "?select=*") : [],
+          canTenants ? query("leases", token, "?select=*,tenants(full_name,email),properties(name,address)") : [],
+          can.includes("finance") || canTenants ? query("payments", token, "?select=*,leases(tenants(full_name),properties(name))&order=due_date.desc") : [],
           query("maintenance_tickets", token, "?select=*,properties(name)"),
-          query("documents", token, "?select=*&order=uploaded_at.desc"),
+          canTenants ? query("documents", token, "?select=*&order=uploaded_at.desc") : [],
         ]);
         let employees = [], payslips = [], leaveRequests = [], staffInvites = [];
         if (profile.role === "direction") {
@@ -1361,7 +1428,8 @@ function App() {
         setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites });
       } catch (e) { setDataError(e.message); }
     })();
-  }, [session, profile]);
+    // Pas de rechargement complet à chaque renouvellement du jeton : seulement au changement d'utilisateur
+  }, [session?.user?.id, profile]);
 
   const allowedTabs = profile ? PERMISSIONS[profile.role] : [];
 
@@ -1420,7 +1488,7 @@ function App() {
     setUploadingPhoto(true);
     try {
       const tempId = (viewingEmployee && viewingEmployee.id) || "new-" + Date.now();
-      return await uploadPhoto(file, session.access_token, tempId);
+      return await uploadPhoto(file, session.access_token, profile.organization_id, tempId);
     } catch (e) { alert(e.message); return null; }
     finally { setUploadingPhoto(false); }
   }
@@ -1584,17 +1652,25 @@ function App() {
   async function updateLease(id, fields) {
     setSubmitting(true);
     try {
+      const previous = data.leases.find(l => l.id === id);
       const [row] = await patchRow("leases", id, session.access_token, fields);
       const property = data.properties.find(p => p.id === fields.property_id);
-      // Si le bail n'est plus actif, le bien repasse vacant ; s'il redevient actif, le bien repasse occupé
-      const newPropertyStatus = fields.status === "actif" ? "occupe" : "vacant";
-      if (property && property.status !== newPropertyStatus) {
-        await patchRow("properties", fields.property_id, session.access_token, { status: newPropertyStatus });
+      const leasesAfter = data.leases.map(l => l.id === id ? { ...l, ...row } : l);
+      // Un bien est occupé tant qu'au moins un bail actif y est rattaché (on ne touche pas aux biens en maintenance)
+      const statusUpdates = {};
+      for (const propertyId of new Set([fields.property_id, previous?.property_id].filter(Boolean))) {
+        const p = data.properties.find(x => x.id === propertyId);
+        if (!p || p.status === "maintenance") continue;
+        const target = leasesAfter.some(l => l.property_id === propertyId && l.status === "actif") ? "occupe" : "vacant";
+        if (p.status !== target) {
+          await patchRow("properties", propertyId, session.access_token, { status: target });
+          statusUpdates[propertyId] = target;
+        }
       }
       setData(d => ({
         ...d,
         leases: d.leases.map(l => l.id === id ? { ...l, ...row, properties: property || l.properties } : l),
-        properties: d.properties.map(p => p.id === fields.property_id ? { ...p, status: newPropertyStatus } : p),
+        properties: d.properties.map(p => statusUpdates[p.id] ? { ...p, status: statusUpdates[p.id] } : p),
       }));
       setEditingLease(null);
     } catch (e) { alert(e.message); }
@@ -1605,11 +1681,14 @@ function App() {
     setSubmitting(true);
     try {
       await deleteRow("leases", lease.id, session.access_token);
-      await patchRow("properties", lease.property_id, session.access_token, { status: "vacant" });
+      const stillOccupied = data.leases.some(l => l.id !== lease.id && l.property_id === lease.property_id && l.status === "actif");
+      const property = data.properties.find(p => p.id === lease.property_id);
+      const freeProperty = !stillOccupied && property && property.status === "occupe";
+      if (freeProperty) await patchRow("properties", lease.property_id, session.access_token, { status: "vacant" });
       setData(d => ({
         ...d,
         leases: d.leases.filter(l => l.id !== lease.id),
-        properties: d.properties.map(p => p.id === lease.property_id ? { ...p, status: "vacant" } : p),
+        properties: d.properties.map(p => freeProperty && p.id === lease.property_id ? { ...p, status: "vacant" } : p),
       }));
       setEditingLease(null);
     } catch (e) { alert(e.message); }
@@ -1662,6 +1741,7 @@ function App() {
     return { total, occupied, vacant, rate, collected, late, lateCount, recoveryRate, expiringLeases, urgentTickets, openTickets };
   }, [data]);
 
+  if (restoring) return <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center", color: "#C4CBDA", fontSize: 13 }}>Chargement…</div>;
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
   if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} />;
 
@@ -1714,20 +1794,20 @@ function App() {
               <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginBottom: 20 }}>
                 <KpiCard label="Biens immobiliers" value={kpis.total} sub={`${kpis.vacant} vacant(s)`} accent={NAVY} />
                 <KpiCard label="Taux d'occupation" value={`${kpis.rate}%`} sub={`${kpis.occupied} / ${kpis.total}`} accent={SAGE} />
-                <KpiCard label="Revenus encaissés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={GOLD} />
-                <KpiCard label="Baux actifs" value={data.leases.filter(l => l.status === "actif").length} accent={NAVY} />
+                {allowedTabs.includes("tenants") && <KpiCard label="Revenus encaissés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={GOLD} />}
+                {allowedTabs.includes("tenants") && <KpiCard label="Baux actifs" value={data.leases.filter(l => l.status === "actif").length} accent={NAVY} />}
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
-                <KpiCard label="Taux de recouvrement" value={`${kpis.recoveryRate}%`} sub={`${kpis.lateCount} paiement(s) en retard`} accent={kpis.recoveryRate >= 95 ? SAGE : CORAL} />
-                <KpiCard label="Baux expirant sous 60j" value={kpis.expiringLeases} accent={kpis.expiringLeases > 0 ? GOLD : SAGE} />
+                {allowedTabs.includes("tenants") && <KpiCard label="Taux de recouvrement" value={`${kpis.recoveryRate}%`} sub={`${kpis.lateCount} paiement(s) en retard`} accent={kpis.recoveryRate >= 95 ? SAGE : CORAL} />}
+                {allowedTabs.includes("tenants") && <KpiCard label="Baux expirant sous 60j" value={kpis.expiringLeases} accent={kpis.expiringLeases > 0 ? GOLD : SAGE} />}
                 <KpiCard label="Tickets urgents" value={kpis.urgentTickets} sub={`${kpis.openTickets} ticket(s) ouvert(s) au total`} accent={kpis.urgentTickets > 0 ? CORAL : SAGE} />
               </div>
-              {kpis.late > 0 && (
+              {allowedTabs.includes("tenants") && kpis.late > 0 && (
                 <div style={{ background: "#FBEEEA", border: `1px solid ${CORAL}33`, borderRadius: 4, padding: "14px 18px", marginBottom: 20 }}>
                   ⚠️ <b>{kpis.late.toLocaleString("fr-FR")} €</b> de loyers en retard
                 </div>
               )}
-              {data.total === 0 && (
+              {kpis.total === 0 && (
                 <div style={{ textAlign: "center", color: "#8A8577", padding: 40 }}>
                   Aucune donnée pour l'instant — ajoute un bien via Supabase (Table Editor → properties → Insert row).
                 </div>
@@ -2074,7 +2154,6 @@ function App() {
                     </table>
                   </SectionCard>
                 </>
-              )}
               )}
               {hrTab === "leave" && (
                 <SectionCard title="Demandes de congés">
