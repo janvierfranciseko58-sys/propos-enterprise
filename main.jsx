@@ -86,7 +86,11 @@ async function patchRow(table, id, token, body) {
     headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: "return=representation" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Erreur mise à jour ${table}`);
+  if (!res.ok) {
+    let detail = "";
+    try { const j = await res.json(); detail = j.message || j.details || ""; } catch (_) {}
+    throw new Error(`Erreur mise à jour ${table}${detail ? ` : ${detail}` : ""}`);
+  }
   return res.json();
 }
 async function insertRow(table, token, body) {
