@@ -30,8 +30,31 @@ const NAV = [
 ];
 const statusColor = { occupe: SAGE, vacant: GOLD, maintenance: CORAL };
 const statusLabel = { occupe: "Occupé", vacant: "Vacant", maintenance: "Maintenance" };
+const ticketCategoryLabel = { plomberie: "Plomberie", electricite: "Électricité", climatisation: "Climatisation", structural: "Structurel", ascenseur: "Ascenseur", autre: "Autre" };
+const ticketPriorityLabel = { faible: "Faible", moyen: "Moyenne", eleve: "Élevée", urgent: "Urgente" };
+const ticketStatusLabel = { ouvert: "Ouvert", en_cours: "En cours", resolu: "Résolu" };
+const ticketStatusColor = { ouvert: CORAL, en_cours: "#A8862F", resolu: SAGE };
+const ticketPriorityColor = { faible: "#8A8577", moyen: "#8A8577", eleve: "#A8862F", urgent: CORAL };
+const leaseStatusLabel = { actif: "Actif", expire: "Expiré", resilie: "Résilié" };
+const employeeStatusLabel = { actif: "Actif", conge: "En congé", sorti: "Sorti" };
+const leaveStatusLabel = { en_attente: "En attente", approuve: "Approuvé", refuse: "Refusé" };
+const label = (map, value) => map[value] || value || "—";
+const formatDate = d => d ? new Date(d).toLocaleDateString("fr-FR") : "—";
 
 // ----- Client Supabase minimal (fetch direct vers PostgREST) -----
+const ACCOUNT_EXISTS_MSG = "Un compte existe déjà avec cette adresse email : utilise « J'ai déjà un compte » pour te connecter.";
+// Traduction des messages d'erreur Supabase Auth les plus courants
+function authErrorMessage(data, fallback) {
+  const code = data.error_code || data.code || "";
+  const msg = data.error_description || data.msg || data.message || "";
+  if (code === "invalid_credentials" || /invalid login credentials/i.test(msg)) return "Email ou mot de passe incorrect.";
+  if (code === "email_not_confirmed" || /email not confirmed/i.test(msg)) return "Adresse email non confirmée : clique sur le lien reçu par email, puis reconnecte-toi.";
+  if (code === "user_already_exists" || /already registered/i.test(msg)) return ACCOUNT_EXISTS_MSG;
+  if (code === "weak_password" || (/password/i.test(msg) && /(characters|least|weak)/i.test(msg))) return "Mot de passe trop faible : au moins 8 caractères, avec une minuscule, une majuscule et un chiffre.";
+  if (code === "over_email_send_rate_limit" || /rate limit/i.test(msg)) return "Trop de tentatives : réessaie dans quelques minutes.";
+  if (/valid email|invalid format/i.test(msg)) return "Adresse email invalide.";
+  return msg || fallback;
+}
 async function signIn(email, password) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
     method: "POST",
@@ -39,7 +62,7 @@ async function signIn(email, password) {
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error_description || data.msg || "Identifiants invalides");
+  if (!res.ok) throw new Error(authErrorMessage(data, "Identifiants invalides"));
   return data;
 }
 async function signUp(email, password) {
@@ -49,7 +72,11 @@ async function signUp(email, password) {
     body: JSON.stringify({ email, password }),
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data.error_description || data.msg || "Impossible de créer le compte");
+  if (!res.ok) throw new Error(authErrorMessage(data, "Impossible de créer le compte"));
+  // Avec la confirmation d'email activée, Supabase ne renvoie pas d'erreur pour une
+  // adresse déjà inscrite : il renvoie un utilisateur sans identité.
+  const user = data.user || data;
+  if (!data.access_token && Array.isArray(user.identities) && user.identities.length === 0) throw new Error(ACCOUNT_EXISTS_MSG);
   return data;
 }
 async function refreshSession(refreshToken) {
@@ -116,6 +143,7 @@ async function deleteRow(table, id, token) {
     }
     throw new Error(detail || `Erreur suppression ${table}`);
   }
+  try { return await res.json(); } catch (_) { return []; }
 }
 async function uploadPhoto(file, token, organizationId, employeeId) {
   const ext = file.name.split(".").pop();
@@ -782,7 +810,7 @@ function EmployeeCard({ employee, onEdit, onDelete }) {
               fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
               background: employee.status === "actif" ? "#E9F1EA" : "#FBF3E3",
               color: employee.status === "actif" ? SAGE : "#A8862F"
-            }}>{employee.status}</span>
+            }}>{label(employeeStatusLabel, employee.status)}</span>
           </div>
         </div>
       </div>
@@ -1193,7 +1221,7 @@ function TenantPortal({ session, tenant, onLogout }) {
                 </div>
                 <div>
                   <div style={{ fontSize: 10.5, color: "#8A8577", textTransform: "uppercase" }}>Statut</div>
-                  <div style={{ fontSize: 13.5, marginTop: 2 }}>{activeLease.status}</div>
+                  <div style={{ fontSize: 13.5, marginTop: 2 }}>{label(leaseStatusLabel, activeLease.status)}</div>
                 </div>
               </div>
             </SectionCard>
@@ -1255,9 +1283,12 @@ function TenantPortal({ session, tenant, onLogout }) {
                 <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${SAND}` }}>
                   <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 8 }}>Mes signalements précédents</div>
                   {data.tickets.map(t => (
-                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #F5F2EA" }}>
-                      <div style={{ fontSize: 12.5 }}>{t.category} — {t.description}</div>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: t.status === "resolu" ? SAGE : CORAL }}>{t.status}</span>
+                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderBottom: "1px solid #F5F2EA" }}>
+                      <div style={{ fontSize: 12.5 }}>
+                        <b style={{ fontWeight: 500 }}>{label(ticketCategoryLabel, t.category)}</b> — {t.description}
+                        <div style={{ fontSize: 11, color: "#8A8577", marginTop: 2 }}>Signalé le {formatDate(t.created_at)}{t.resolved_at ? ` · résolu le ${formatDate(t.resolved_at)}` : ""}</div>
+                      </div>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: ticketStatusColor[t.status] || CORAL, whiteSpace: "nowrap" }}>{label(ticketStatusLabel, t.status)}</span>
                     </div>
                   ))}
                 </div>
@@ -1279,8 +1310,11 @@ function App() {
   const [signupInfo, setSignupInfo] = useState("");
   const [tab, setTab] = useState("overview");
   const [hrTab, setHrTab] = useState("employees");
-  const [data, setData] = useState({ buildings: [], properties: [], tenants: [], leases: [], payments: [], maintenance: [], employees: [], payslips: [], leaveRequests: [], documents: [], staffInvites: [] });
+  const [data, setData] = useState({ buildings: [], properties: [], tenants: [], leases: [], payments: [], maintenance: [], employees: [], payslips: [], leaveRequests: [], documents: [], staffInvites: [], teamMembers: [] });
   const [inviteModal, setInviteModal] = useState(false);
+  const [updatingMember, setUpdatingMember] = useState(null);
+  const [updatingTicket, setUpdatingTicket] = useState(null);
+  const [ticketFilter, setTicketFilter] = useState("open"); // 'open' | 'resolu' | 'all'
   const [invitingStaff, setInvitingStaff] = useState(false);
   const [dataError, setDataError] = useState("");
   const [modal, setModal] = useState(null); // 'building' | 'property' | 'tenant' | 'lease' | null
@@ -1420,16 +1454,17 @@ function App() {
           query("maintenance_tickets", token, "?select=*,properties(name)"),
           canTenants ? query("documents", token, "?select=*&order=uploaded_at.desc") : [],
         ]);
-        let employees = [], payslips = [], leaveRequests = [], staffInvites = [];
+        let employees = [], payslips = [], leaveRequests = [], staffInvites = [], teamMembers = [];
         if (profile.role === "direction") {
-          [employees, payslips, leaveRequests, staffInvites] = await Promise.all([
+          [employees, payslips, leaveRequests, staffInvites, teamMembers] = await Promise.all([
             query("employees", token, "?select=*,buildings(name)"),
             query("payslips", token, "?select=*,employees(full_name,role_title,department)"),
             query("leave_requests", token, "?select=*,employees(full_name)"),
             query("staff_invites", token, "?select=*&order=created_at.desc"),
+            query("profiles", token, "?select=*&order=full_name.asc"),
           ]);
         }
-        setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites });
+        setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites, teamMembers });
       } catch (e) { setDataError(e.message); }
     })();
     // Pas de rechargement complet à chaque renouvellement du jeton : seulement au changement d'utilisateur
@@ -1452,6 +1487,41 @@ function App() {
       await deleteRow("staff_invites", id, session.access_token);
       setData(d => ({ ...d, staffInvites: d.staffInvites.filter(i => i.id !== id) }));
     } catch (e) { alert(e.message); }
+  }
+
+  async function changeMemberRole(member, role) {
+    if (role === member.role) return;
+    if (!confirm(`Passer ${member.full_name} de « ${roles[member.role]} » à « ${roles[role]} » ? Le changement s'appliquera à sa prochaine connexion.`)) return;
+    setUpdatingMember(member.id);
+    try {
+      const rows = await patchRow("profiles", member.id, session.access_token, { role });
+      if (!rows.length) throw new Error("Modification refusée : tu ne peux pas modifier ton propre compte.");
+      setData(d => ({ ...d, teamMembers: d.teamMembers.map(m => m.id === member.id ? { ...m, ...rows[0] } : m) }));
+    } catch (e) { alert(e.message); }
+    finally { setUpdatingMember(null); }
+  }
+
+  async function removeMember(member) {
+    if (!confirm(`Retirer l'accès de ${member.full_name} ? Cette personne ne pourra plus se connecter à l'Espace Équipe.`)) return;
+    setUpdatingMember(member.id);
+    try {
+      const rows = await deleteRow("profiles", member.id, session.access_token);
+      if (!rows.length) throw new Error("Suppression refusée : tu ne peux pas retirer ton propre accès.");
+      setData(d => ({ ...d, teamMembers: d.teamMembers.filter(m => m.id !== member.id) }));
+    } catch (e) { alert(e.message); }
+    finally { setUpdatingMember(null); }
+  }
+
+  async function updateTicketStatus(ticket, status) {
+    setUpdatingTicket(ticket.id);
+    try {
+      const rows = await patchRow("maintenance_tickets", ticket.id, session.access_token, {
+        status, resolved_at: status === "resolu" ? new Date().toISOString() : null,
+      });
+      if (!rows.length) throw new Error("Modification refusée.");
+      setData(d => ({ ...d, maintenance: d.maintenance.map(t => t.id === ticket.id ? { ...t, ...rows[0] } : t) }));
+    } catch (e) { alert(e.message); }
+    finally { setUpdatingTicket(null); }
   }
 
   async function createBuilding(fields) {
@@ -1923,10 +1993,10 @@ function App() {
                 <ExportButtons
                   onExcel={() => exportExcel("propos-baux", "Baux", data.leases.map(l => ({
                     Locataire: l.tenants?.full_name || "", Email: l.tenants?.email || "", Bien: l.properties?.name || "",
-                    "Loyer (€)": l.rent, Statut: l.status,
+                    "Loyer (€)": l.rent, Statut: label(leaseStatusLabel, l.status),
                   })))}
                   onPDF={() => exportPDFTable("Baux & locataires", ["Locataire", "Bien", "Loyer", "Statut"],
-                    data.leases.map(l => [l.tenants?.full_name || "—", l.properties?.name || "—", pdfNum(l.rent), l.status]),
+                    data.leases.map(l => [l.tenants?.full_name || "—", l.properties?.name || "—", pdfNum(l.rent), label(leaseStatusLabel, l.status)]),
                     "propos-baux")}
                 />
                 <div style={{ display: "flex", gap: 8 }}>
@@ -1944,7 +2014,7 @@ function App() {
                       <td>{l.tenants?.full_name}<div style={{ fontSize: 11, color: "#8A8577" }}>{l.tenants?.email}</div></td>
                       <td>{l.properties?.name} — {l.properties?.address}</td>
                       <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(l.rent).toLocaleString("fr-FR")} €</td>
-                      <td>{l.status}</td>
+                      <td>{label(leaseStatusLabel, l.status)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         <span onClick={() => setEditingTenant(l.tenants ? { ...l.tenants, id: l.tenant_id } : { id: l.tenant_id, full_name: "", email: "", phone: "" })}
                           title="Modifier le locataire"
@@ -2037,29 +2107,66 @@ function App() {
             </>
           )}
 
-          {tab === "maintenance" && (
-            <SectionCard title="Tickets de maintenance" action={
-              <ExportButtons
-                onExcel={() => exportExcel("propos-maintenance", "Tickets", data.maintenance.map(t => ({
-                  Bien: t.properties?.name || "", Catégorie: t.category, Priorité: t.priority, Statut: t.status, Description: t.description || "",
-                })))}
-                onPDF={() => exportPDFTable("Tickets de maintenance", ["Bien", "Catégorie", "Priorité", "Statut"],
-                  data.maintenance.map(t => [t.properties?.name || "—", t.category, t.priority, t.status]),
-                  "propos-maintenance")}
-              />
-            }>
-              {data.maintenance.length === 0 && <div style={{ color: "#8A8577", fontSize: 13 }}>Aucun ticket.</div>}
-              {data.maintenance.map(t => (
-                <div key={t.id} style={{ display: "flex", justifyContent: "space-between", padding: "12px 0", borderBottom: "1px solid #F0ECE2" }}>
-                  <div>
-                    <div style={{ fontWeight: 500, fontSize: 13.5 }}>{t.category} — {t.properties?.name}</div>
-                    <div style={{ fontSize: 11.5, color: "#8A8577" }}>Priorité : {t.priority}</div>
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: t.status === "resolu" ? SAGE : CORAL }}>{t.status}</span>
+          {tab === "maintenance" && (() => {
+            const priorityRank = { urgent: 0, eleve: 1, moyen: 2, faible: 3 };
+            const openCount = data.maintenance.filter(t => t.status !== "resolu").length;
+            const tickets = data.maintenance
+              .filter(t => ticketFilter === "all" || (ticketFilter === "resolu" ? t.status === "resolu" : t.status !== "resolu"))
+              .sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || String(b.created_at).localeCompare(String(a.created_at)));
+            const smallBtn = (bg, color) => ({ background: bg, color, border: "none", borderRadius: 3, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" });
+            return (
+              <SectionCard title="Tickets de maintenance" action={
+                <ExportButtons
+                  onExcel={() => exportExcel("propos-maintenance", "Tickets", data.maintenance.map(t => ({
+                    Bien: t.properties?.name || "", Catégorie: label(ticketCategoryLabel, t.category), Priorité: label(ticketPriorityLabel, t.priority),
+                    Statut: label(ticketStatusLabel, t.status), Description: t.description || "", "Signalé le": formatDate(t.created_at), "Résolu le": t.resolved_at ? formatDate(t.resolved_at) : "",
+                  })))}
+                  onPDF={() => exportPDFTable("Tickets de maintenance", ["Bien", "Catégorie", "Priorité", "Statut", "Signalé le"],
+                    data.maintenance.map(t => [t.properties?.name || "—", label(ticketCategoryLabel, t.category), label(ticketPriorityLabel, t.priority), label(ticketStatusLabel, t.status), formatDate(t.created_at)]),
+                    "propos-maintenance")}
+                />
+              }>
+                <div style={{ display: "flex", gap: 6, marginBottom: 10, borderBottom: `1px solid ${SAND}` }}>
+                  {[{ key: "open", label: `À traiter (${openCount})` }, { key: "resolu", label: `Résolus (${data.maintenance.length - openCount})` }, { key: "all", label: "Tous" }].map(f => (
+                    <div key={f.key} onClick={() => setTicketFilter(f.key)} style={{ padding: "8px 12px", fontSize: 12.5, cursor: "pointer", color: ticketFilter === f.key ? NAVY_DEEP : "#8A8577", fontWeight: ticketFilter === f.key ? 600 : 400, borderBottom: ticketFilter === f.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>{f.label}</div>
+                  ))}
                 </div>
-              ))}
-            </SectionCard>
-          )}
+                {tickets.length === 0 && <div style={{ color: "#8A8577", fontSize: 13, padding: "12px 0" }}>{ticketFilter === "open" ? "Aucun ticket à traiter. 👌" : "Aucun ticket."}</div>}
+                {tickets.map(t => {
+                  const busy = updatingTicket === t.id;
+                  return (
+                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, padding: "14px 0", borderBottom: "1px solid #F0ECE2" }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontWeight: 500, fontSize: 13.5 }}>{label(ticketCategoryLabel, t.category)} — {t.properties?.name || "—"}</div>
+                        {t.description && <div style={{ fontSize: 12.5, color: INK, marginTop: 4, lineHeight: 1.45 }}>{t.description}</div>}
+                        <div style={{ fontSize: 11.5, color: "#8A8577", marginTop: 5 }}>
+                          Priorité : <span style={{ color: ticketPriorityColor[t.priority], fontWeight: 600 }}>{label(ticketPriorityLabel, t.priority)}</span>
+                          {" · "}Signalé le {formatDate(t.created_at)}{t.reported_by_tenant_id ? " par le locataire" : ""}
+                          {t.resolved_at && ` · Résolu le ${formatDate(t.resolved_at)}`}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, color: ticketStatusColor[t.status] || CORAL, background: t.status === "resolu" ? "#E9F1EA" : t.status === "en_cours" ? "#FBF3E3" : "#FBEEEA" }}>
+                          {label(ticketStatusLabel, t.status)}
+                        </span>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {t.status === "ouvert" && (
+                            <button disabled={busy} onClick={() => updateTicketStatus(t, "en_cours")} style={smallBtn("#FBF3E3", "#A8862F")}>Prendre en charge</button>
+                          )}
+                          {t.status !== "resolu" && (
+                            <button disabled={busy} onClick={() => updateTicketStatus(t, "resolu")} style={smallBtn(SAGE, "#fff")}>✓ Marquer résolu</button>
+                          )}
+                          {t.status === "resolu" && (
+                            <button disabled={busy} onClick={() => updateTicketStatus(t, "ouvert")} style={smallBtn(IVORY, "#8A8577")}>Rouvrir</button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </SectionCard>
+            );
+          })()}
 
           {tab === "hr" && (
             <>
@@ -2117,7 +2224,7 @@ function App() {
                                     fontSize: 10.5, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
                                     background: e.status === "actif" ? "#E9F1EA" : "#FBF3E3",
                                     color: e.status === "actif" ? SAGE : "#A8862F"
-                                  }}>{e.status}</span>
+                                  }}>{label(employeeStatusLabel, e.status)}</span>
                                 </div>
                               ))}
                             </div>
@@ -2172,9 +2279,41 @@ function App() {
                           <button onClick={() => approveLeave(l.id, "approuve")} style={{ background: "#E9F1EA", border: "none", color: SAGE, borderRadius: 3, width: 28, height: 28, cursor: "pointer" }}>✓</button>
                           <button onClick={() => approveLeave(l.id, "refuse")} style={{ background: "#FBEEEA", border: "none", color: CORAL, borderRadius: 3, width: 28, height: 28, cursor: "pointer" }}>✕</button>
                         </div>
-                      ) : <span style={{ fontSize: 11, fontWeight: 600, color: l.status === "approuve" ? SAGE : CORAL }}>{l.status}</span>}
+                      ) : <span style={{ fontSize: 11, fontWeight: 600, color: l.status === "approuve" ? SAGE : CORAL }}>{label(leaveStatusLabel, l.status)}</span>}
                     </div>
                   ))}
+                </SectionCard>
+              )}
+              {hrTab === "invites" && (
+                <SectionCard title={`Membres de l'équipe — ${data.teamMembers.length}`} style={{ marginBottom: 18 }}>
+                  {data.teamMembers.length === 0 && <div style={{ fontSize: 13, color: "#8A8577" }}>Aucun membre.</div>}
+                  {data.teamMembers.map(m => {
+                    const isMe = m.id === profile.id;
+                    const busy = updatingMember === m.id;
+                    return (
+                      <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #F0ECE2" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+                          <PhotoAvatar name={m.full_name} size={32} />
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 13.5, fontWeight: 500 }}>{m.full_name}{isMe && <span style={{ fontSize: 11, color: "#8A8577", fontWeight: 400 }}> (toi)</span>}</div>
+                            <div style={{ fontSize: 11.5, color: "#8A8577" }}>{m.email || "—"}</div>
+                          </div>
+                        </div>
+                        {isMe ? (
+                          <span style={{ fontSize: 12, color: "#8A8577" }}>{roles[m.role]}</span>
+                        ) : (
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <select style={{ ...inputStyle, width: 170, padding: "6px 8px", fontSize: 12.5 }} value={m.role} disabled={busy}
+                              onChange={e => changeMemberRole(m, e.target.value)}>
+                              {Object.entries(roles).map(([key, lbl]) => <option key={key} value={key}>{lbl}</option>)}
+                            </select>
+                            <span onClick={() => !busy && removeMember(m)}
+                              style={{ fontSize: 11.5, color: CORAL, cursor: busy ? "wait" : "pointer", fontWeight: 500, whiteSpace: "nowrap" }}>Retirer l'accès</span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </SectionCard>
               )}
               {hrTab === "invites" && (
@@ -2192,17 +2331,9 @@ function App() {
                         style={{ fontSize: 11.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Révoquer</span>
                     </div>
                   ))}
-                  {data.staffInvites.some(i => i.used_at) && (
-                    <div style={{ marginTop: 18, paddingTop: 14, borderTop: `1px solid ${SAND}` }}>
-                      <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 8 }}>Invitations utilisées</div>
-                      {data.staffInvites.filter(i => i.used_at).map(i => (
-                        <div key={i.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
-                          <div style={{ fontSize: 12.5 }}>{i.full_name || i.email} — {roles[i.role] || i.role}</div>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: SAGE }}>Compte créé</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                  <div style={{ fontSize: 11.5, color: "#8A8577", marginTop: 12, lineHeight: 1.5 }}>
+                    Pour modifier une invitation (email ou rôle), révoque-la puis renvoie-en une nouvelle.
+                  </div>
                 </SectionCard>
               )}
             </>
