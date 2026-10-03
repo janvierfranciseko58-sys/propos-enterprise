@@ -52,6 +52,8 @@ function authErrorMessage(data, fallback) {
   if (code === "user_already_exists" || /already registered/i.test(msg)) return ACCOUNT_EXISTS_MSG;
   if (code === "weak_password" || (/password/i.test(msg) && /(characters|least|weak)/i.test(msg))) return "Mot de passe trop faible : au moins 8 caractères, avec une minuscule, une majuscule et un chiffre.";
   if (code === "over_email_send_rate_limit" || /rate limit/i.test(msg)) return "Trop de tentatives : réessaie dans quelques minutes.";
+  if (code === "same_password" || /different from the old/i.test(msg)) return "Le nouveau mot de passe doit être différent de l'ancien.";
+  if (code === "session_not_found" || code === "bad_jwt" || (/jwt|session/i.test(msg) && /expired|invalid|not found/i.test(msg))) return "Ce lien a expiré : redemande un email de réinitialisation.";
   if (/valid email|invalid format/i.test(msg)) return "Adresse email invalide.";
   return msg || fallback;
 }
@@ -78,6 +80,45 @@ async function signUp(email, password) {
   const user = data.user || data;
   if (!data.access_token && Array.isArray(user.identities) && user.identities.length === 0) throw new Error(ACCOUNT_EXISTS_MSG);
   return data;
+}
+// Envoi de l'email de réinitialisation ; le lien ramène sur cette même adresse
+async function requestPasswordReset(email) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/recover?redirect_to=${encodeURIComponent(window.location.origin)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    let data = {};
+    try { data = await res.json(); } catch (_) {}
+    throw new Error(authErrorMessage(data, "Impossible d'envoyer l'email pour le moment."));
+  }
+}
+async function updatePassword(token, password) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1/user`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ password }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(authErrorMessage(data, "Impossible de modifier le mot de passe."));
+  return data;
+}
+// Lit (puis efface de l'adresse) les paramètres ajoutés par Supabase au retour d'un lien email
+function readAuthRedirect() {
+  const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+  const search = new URLSearchParams(window.location.search);
+  for (const [k, v] of search) if (!params.has(k) && (k.startsWith("error") || k === "type")) params.set(k, v);
+  if (!params.has("access_token") && !params.has("error") && !params.has("error_code")) return null;
+  window.history.replaceState(null, "", window.location.pathname);
+  if (params.get("error") || params.get("error_code")) {
+    return {
+      error: params.get("error_code") === "otp_expired"
+        ? "Ce lien a expiré ou a déjà été utilisé. Redemande-en un nouveau."
+        : (params.get("error_description") || "Lien invalide.").replace(/\+/g, " "),
+    };
+  }
+  return { type: params.get("type"), access_token: params.get("access_token") };
 }
 async function refreshSession(refreshToken) {
   const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=refresh_token`, {
@@ -1031,22 +1072,41 @@ function EmployeeForm({ initial, buildings, onSubmit, submitting, onUploadPhoto,
     </div>
   );
 }
-function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, signupInfo }) {
-  const [mode, setMode] = useState("staff"); // 'staff' | 'tenant'
-  const [signupMode, setSignupMode] = useState(false);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showSignupPassword, setShowSignupPassword] = useState(false);
-  const [showLoginPassword, setShowLoginPassword] = useState(false);
-
-  const tabBtn = (active) => ({
-    flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "center",
-    borderRadius: 4, background: active ? NAVY_DEEP : "transparent", color: active ? "#fff" : "#8A8577",
-  });
-
+function PasswordInput({ value, onChange, autoComplete, style }) {
+  const [visible, setVisible] = useState(false);
   return (
-    <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <div style={{ background: "#fff", borderRadius: 6, padding: 36, width: 380 }}>
+    <div style={{ position: "relative", margin: "4px 0 18px", ...style }}>
+      <input value={value} onChange={onChange} type={visible ? "text" : "password"} autoComplete={autoComplete}
+        style={{ width: "100%", boxSizing: "border-box", padding: "10px 40px 10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, fontSize: 13.5 }} />
+      <span onClick={() => setVisible(v => !v)}
+        title={visible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
+        style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8A8577", display: "flex", lineHeight: 0 }}>
+        {visible ? (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-10-8-10-8a18.7 18.7 0 0 1 4.22-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 10 8 10 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+            <line x1="1" y1="1" x2="23" y2="23" />
+          </svg>
+        ) : (
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        )}
+      </span>
+    </div>
+  );
+}
+
+const authInputStyle = { width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 };
+const authBtnStyle = { width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" };
+const authLinkStyle = { fontSize: 12, color: NAVY, cursor: "pointer" };
+const AuthError = ({ children }) => children ? <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14, lineHeight: 1.45 }}>{children}</div> : null;
+const AuthInfo = ({ children }) => children ? <div style={{ background: "#E9F1EA", color: SAGE, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14, lineHeight: 1.45 }}>{children}</div> : null;
+
+function AuthCard({ children }) {
+  return (
+    <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div style={{ background: "#fff", borderRadius: 6, padding: 36, width: 380, maxWidth: "100%" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 22 }}>
           <div style={{ width: 34, height: 34, borderRadius: 4, background: GOLD, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: NAVY_DEEP, fontSize: 16 }}>P</span>
@@ -1056,11 +1116,117 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
             <div style={{ fontSize: 10.5, color: "#8A8577" }}>ENTERPRISE</div>
           </div>
         </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
+// Écran affiché au retour du lien « Réinitialiser le mot de passe »
+function ResetPasswordScreen({ token, onDone }) {
+  const [password, setPassword] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    setError("");
+    if (password.length < 8) return setError("Le mot de passe doit contenir au moins 8 caractères.");
+    if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) return setError("Le mot de passe doit contenir au moins une minuscule, une majuscule et un chiffre.");
+    if (password !== confirmation) return setError("Les deux mots de passe ne sont pas identiques.");
+    setSaving(true);
+    try {
+      await updatePassword(token, password);
+      // On ferme la session ouverte par le lien : la personne se reconnecte normalement
+      fetch(`${SUPABASE_URL}/auth/v1/logout`, { method: "POST", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } }).catch(() => {});
+      onDone("Mot de passe modifié. Connecte-toi avec ton nouveau mot de passe.");
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <AuthCard>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 6 }}>Nouveau mot de passe</div>
+      <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 16, lineHeight: 1.5 }}>
+        Au moins 8 caractères, avec une minuscule, une majuscule et un chiffre.
+      </div>
+      <label style={{ fontSize: 12, color: "#8A8577" }}>Nouveau mot de passe</label>
+      <PasswordInput value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" style={{ marginBottom: 14 }} />
+      <label style={{ fontSize: 12, color: "#8A8577" }}>Confirmer le mot de passe</label>
+      <PasswordInput value={confirmation} onChange={e => setConfirmation(e.target.value)} autoComplete="new-password" />
+      <AuthError>{error}</AuthError>
+      <button onClick={submit} disabled={saving || !password || !confirmation} style={authBtnStyle}>
+        {saving ? "Enregistrement…" : "Enregistrer le mot de passe"}
+      </button>
+      <div style={{ textAlign: "center", marginTop: 14 }}>
+        <span onClick={() => onDone("")} style={authLinkStyle}>← Retour à la connexion</span>
+      </div>
+    </AuthCard>
+  );
+}
+
+function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, signupInfo, notice }) {
+  const [mode, setMode] = useState("staff"); // 'staff' | 'tenant'
+  const [view, setView] = useState("login"); // 'login' | 'signup' | 'forgot'
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [resetState, setResetState] = useState({ sending: false, sent: false, error: "" });
+  const signupMode = view === "signup";
+  const setSignupMode = on => setView(on ? "signup" : "login");
+
+  async function sendReset() {
+    setResetState({ sending: true, sent: false, error: "" });
+    try {
+      await requestPasswordReset(email.trim());
+      setResetState({ sending: false, sent: true, error: "" });
+    } catch (e) { setResetState({ sending: false, sent: false, error: e.message }); }
+  }
+
+  const tabBtn = (active) => ({
+    flex: 1, padding: "9px 0", fontSize: 12.5, fontWeight: 600, cursor: "pointer", textAlign: "center",
+    borderRadius: 4, background: active ? NAVY_DEEP : "transparent", color: active ? "#fff" : "#8A8577",
+  });
+
+  if (view === "forgot") {
+    return (
+      <AuthCard>
+        <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 6 }}>Mot de passe oublié</div>
+        {resetState.sent ? (
+          <>
+            <AuthInfo>
+              Si un compte existe avec l'adresse <b>{email.trim()}</b>, tu vas recevoir un email avec un lien pour choisir un nouveau mot de passe.
+              Pense à vérifier tes spams. Le lien est valable 1 heure.
+            </AuthInfo>
+            <button onClick={() => { setView("login"); setResetState({ sending: false, sent: false, error: "" }); }} style={authBtnStyle}>Retour à la connexion</button>
+          </>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 16, lineHeight: 1.5 }}>
+              Saisis l'adresse email de ton compte : nous t'enverrons un lien pour choisir un nouveau mot de passe.
+            </div>
+            <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" style={authInputStyle} />
+            <AuthError>{resetState.error}</AuthError>
+            <button onClick={sendReset} disabled={resetState.sending || !/^\S+@\S+\.\S+$/.test(email.trim())} style={authBtnStyle}>
+              {resetState.sending ? "Envoi…" : "Envoyer le lien"}
+            </button>
+            <div style={{ textAlign: "center", marginTop: 14 }}>
+              <span onClick={() => setView("login")} style={authLinkStyle}>← Retour à la connexion</span>
+            </div>
+          </>
+        )}
+      </AuthCard>
+    );
+  }
+
+  return (
+    <AuthCard>
         <div style={{ display: "flex", gap: 4, background: IVORY, borderRadius: 4, padding: 4, marginBottom: 20 }}>
           <div style={tabBtn(mode === "staff")} onClick={() => { setMode("staff"); setSignupMode(false); }}>Espace Équipe</div>
           <div style={tabBtn(mode === "tenant")} onClick={() => setMode("tenant")}>Espace Locataire</div>
         </div>
+
+        {!signupMode && !error && <AuthInfo>{notice}</AuthInfo>}
 
         {signupMode ? (
           <>
@@ -1070,75 +1236,37 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
                 : <>Utilise l'<b>adresse email</b> sur laquelle tu as reçu ton invitation de la Direction — ton accès sera relié automatiquement.</>}
             </div>
             <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email"
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 }} />
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" style={authInputStyle} />
             <label style={{ fontSize: 12, color: "#8A8577" }}>Choisir un mot de passe</label>
-            <div style={{ position: "relative", margin: "4px 0 18px" }}>
-              <input value={password} onChange={e => setPassword(e.target.value)} type={showSignupPassword ? "text" : "password"}
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 40px 10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, fontSize: 13.5 }} />
-              <span onClick={() => setShowSignupPassword(v => !v)}
-                title={showSignupPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8A8577", display: "flex", lineHeight: 0 }}>
-                {showSignupPassword ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-10-8-10-8a18.7 18.7 0 0 1 4.22-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 10 8 10 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                )}
-              </span>
-            </div>
-            {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
-            {signupInfo && <div style={{ background: "#E9F1EA", color: SAGE, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{signupInfo}</div>}
-            <button onClick={() => (mode === "tenant" ? onTenantSignup(email, password) : onStaffSignup(email, password))} disabled={loading}
-              style={{ width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }}>
+            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} autoComplete="new-password" />
+            <AuthError>{error}</AuthError>
+            <AuthInfo>{signupInfo}</AuthInfo>
+            <button onClick={() => (mode === "tenant" ? onTenantSignup(email, password) : onStaffSignup(email, password))} disabled={loading} style={authBtnStyle}>
               {loading ? "Création…" : "Créer mon accès"}
             </button>
             <div style={{ textAlign: "center", marginTop: 14 }}>
-              <span onClick={() => setSignupMode(false)} style={{ fontSize: 12, color: NAVY, cursor: "pointer" }}>← J'ai déjà un compte</span>
+              <span onClick={() => setSignupMode(false)} style={authLinkStyle}>← J'ai déjà un compte</span>
             </div>
           </>
         ) : (
           <>
             <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
-            <input value={email} onChange={e => setEmail(e.target.value)} type="email"
-              style={{ width: "100%", padding: "10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, margin: "4px 0 14px", fontSize: 13.5 }} />
-            <label style={{ fontSize: 12, color: "#8A8577" }}>Mot de passe</label>
-            <div style={{ position: "relative", margin: "4px 0 18px" }}>
-              <input value={password} onChange={e => setPassword(e.target.value)} type={showLoginPassword ? "text" : "password"}
-                style={{ width: "100%", boxSizing: "border-box", padding: "10px 40px 10px 12px", borderRadius: 4, border: `1px solid ${SAND}`, fontSize: 13.5 }} />
-              <span onClick={() => setShowLoginPassword(v => !v)}
-                title={showLoginPassword ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-                style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", cursor: "pointer", color: "#8A8577", display: "flex", lineHeight: 0 }}>
-                {showLoginPassword ? (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-10-8-10-8a18.7 18.7 0 0 1 4.22-5.94M9.9 4.24A10.4 10.4 0 0 1 12 4c7 0 10 8 10 8a18.6 18.6 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-                    <line x1="1" y1="1" x2="23" y2="23" />
-                  </svg>
-                ) : (
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M1 12s3-8 11-8 11 8 11 8-3 8-11 8-11-8-11-8z" />
-                    <circle cx="12" cy="12" r="3" />
-                  </svg>
-                )}
-              </span>
+            <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" style={authInputStyle} />
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <label style={{ fontSize: 12, color: "#8A8577" }}>Mot de passe</label>
+              <span onClick={() => setView("forgot")} style={{ ...authLinkStyle, fontSize: 11.5 }}>Mot de passe oublié ?</span>
             </div>
-            {error && <div style={{ background: "#FBEEEA", color: CORAL, fontSize: 12.5, padding: "8px 12px", borderRadius: 4, marginBottom: 14 }}>{error}</div>}
-            <button onClick={() => onLogin(email, password, mode)} disabled={loading}
-              style={{ width: "100%", background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 4, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer" }}>
+            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
+            <AuthError>{error}</AuthError>
+            <button onClick={() => onLogin(email, password, mode)} disabled={loading} style={authBtnStyle}>
               {loading ? "Connexion…" : "Se connecter"}
             </button>
             <div style={{ textAlign: "center", marginTop: 14 }}>
-              <span onClick={() => setSignupMode(true)} style={{ fontSize: 12, color: NAVY, cursor: "pointer" }}>Première connexion ? Créer mon accès →</span>
+              <span onClick={() => setSignupMode(true)} style={authLinkStyle}>Première connexion ? Créer mon accès →</span>
             </div>
           </>
         )}
-      </div>
-    </div>
+    </AuthCard>
   );
 }
 
@@ -1315,10 +1443,22 @@ function TenantPortal({ session, tenant, onLogout }) {
 }
 
 function App() {
+  // Retour d'un lien envoyé par email (réinitialisation, confirmation, lien expiré)
+  const [authRedirect] = useState(() => {
+    const r = readAuthRedirect();
+    if (r?.type === "recovery") saveSession(null); // on ne restaure pas une ancienne session par-dessus
+    return r;
+  });
+  const [recoveryToken, setRecoveryToken] = useState(authRedirect?.type === "recovery" ? authRedirect.access_token : null);
+  const [loginNotice, setLoginNotice] = useState(
+    authRedirect?.type === "signup" || authRedirect?.type === "email_change" || authRedirect?.type === "invite"
+      ? "Adresse email confirmée ✓ Tu peux maintenant te connecter."
+      : ""
+  );
   const [session, setSession] = useState(null);
   const [profile, setProfile] = useState(null);
   const [tenantProfile, setTenantProfile] = useState(null);
-  const [authError, setAuthError] = useState("");
+  const [authError, setAuthError] = useState(authRedirect?.error || "");
   const [authLoading, setAuthLoading] = useState(false);
   const [signupInfo, setSignupInfo] = useState("");
   const [tab, setTab] = useState("overview");
@@ -1395,7 +1535,7 @@ function App() {
   }, [session]);
 
   async function handleLogin(email, password, mode) {
-    setAuthError(""); setSignupInfo(""); setAuthLoading(true);
+    setAuthError(""); setSignupInfo(""); setLoginNotice(""); setAuthLoading(true);
     try {
       const auth = await signIn(email, password);
       await establishSession(auth, mode);
@@ -1832,9 +1972,10 @@ function App() {
     return { total, occupied, vacant, rate, collected, late, lateCount, recoveryRate, expiringLeases, urgentTickets, openTickets };
   }, [data]);
 
+  if (recoveryToken) return <ResetPasswordScreen token={recoveryToken} onDone={msg => { setRecoveryToken(null); setAuthError(""); setLoginNotice(msg); }} />;
   if (restoring) return <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center", color: "#C4CBDA", fontSize: 13 }}>Chargement…</div>;
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
-  if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} />;
+  if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} notice={loginNotice} />;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", color: INK }}>
