@@ -107,6 +107,19 @@ async function query(table, token, params = "") {
   if (!res.ok) throw new Error(`Erreur lecture ${table}`);
   return res.json();
 }
+// Appel d'une fonction SQL exposée par Supabase ; renvoie [] si elle échoue ou n'existe pas
+async function callRpc(fn, token, body = {}) {
+  try {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${fn}`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json) ? json : [];
+  } catch (_) { return []; }
+}
 async function patchRow(table, id, token, body) {
   const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}?id=eq.${id}`, {
     method: "PATCH",
@@ -1333,12 +1346,16 @@ function App() {
   // Rattache la session au profil équipe ou locataire, puis la mémorise
   async function establishSession(auth, mode) {
     if (mode === "tenant") {
-      const tenantRows = await query("tenants", auth.access_token, `?tenant_user_id=eq.${auth.user.id}&select=*`);
+      let tenantRows = await query("tenants", auth.access_token, `?tenant_user_id=eq.${auth.user.id}&select=*`);
+      // Fiche locataire créée par l'agence après l'inscription : on la rattache maintenant
+      if (!tenantRows.length) tenantRows = await callRpc("claim_tenant_link", auth.access_token);
       if (!tenantRows.length) throw new Error("Aucun accès locataire n'est associé à ce compte. Vérifie ton email ou contacte ta gestion locative.");
       setTenantProfile(tenantRows[0]);
     } else {
-      const profiles = await query("profiles", auth.access_token, `?id=eq.${auth.user.id}&select=*`);
-      if (!profiles.length) throw new Error("Aucun profil trouvé pour cet utilisateur.");
+      let profiles = await query("profiles", auth.access_token, `?id=eq.${auth.user.id}&select=*`);
+      // Invitation envoyée après la création du compte (ex. membre retiré puis réinvité)
+      if (!profiles.length) profiles = await callRpc("claim_staff_invite", auth.access_token);
+      if (!profiles.length) throw new Error("Aucun accès Équipe n'est associé à ce compte. Demande à la Direction de t'envoyer une invitation, puis reconnecte-toi.");
       setProfile(profiles[0]);
     }
     const stored = { ...auth, mode };
