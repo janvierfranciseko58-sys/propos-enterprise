@@ -505,8 +505,8 @@ function KpiCard({ label, value, sub, accent }) {
 }
 function SectionCard({ title, children, style, action }) {
   return (
-    <div style={{ background: "#fff", borderRadius: 4, padding: "20px 22px", boxShadow: "0 1px 3px rgba(15,52,96,0.06)", ...style }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+    <div className="section-card" style={{ background: "#fff", borderRadius: 4, padding: "20px 22px", boxShadow: "0 1px 3px rgba(15,52,96,0.06)", ...style }}>
+      <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 16 }}>
         <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 17, fontWeight: 500, color: NAVY_DEEP, margin: 0 }}>{title}</h3>
         {action}
       </div>
@@ -531,7 +531,7 @@ function BarRow({ label, value, max, color }) {
 function Modal({ title, onClose, children }) {
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,38,71,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 6, padding: 28, width: 420, maxHeight: "85vh", overflowY: "auto" }}>
+      <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 6, padding: 28, width: 420, maxWidth: "calc(100vw - 32px)", maxHeight: "85vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <h3 style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, margin: 0 }}>{title}</h3>
           <span onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: "#8A8577" }}>✕</span>
@@ -1323,7 +1323,7 @@ function TenantPortal({ session, tenant, onLogout }) {
 
   return (
     <div style={{ minHeight: "100vh", background: IVORY }}>
-      <div style={{ background: NAVY_DEEP, padding: "16px 32px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="tenant-head" style={{ background: NAVY_DEEP, padding: "16px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 30, height: 30, borderRadius: 4, background: GOLD, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: NAVY_DEEP, fontSize: 14 }}>P</span>
@@ -1336,7 +1336,7 @@ function TenantPortal({ session, tenant, onLogout }) {
         </div>
       </div>
 
-      <div style={{ maxWidth: 760, margin: "0 auto", padding: 32 }}>
+      <div className="content" style={{ maxWidth: 760, margin: "0 auto", padding: 32 }}>
         {loading && <div style={{ color: "#8A8577", fontSize: 13 }}>Chargement…</div>}
         {error && <div style={{ background: "#FBEEEA", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{error}</div>}
 
@@ -1351,7 +1351,7 @@ function TenantPortal({ session, tenant, onLogout }) {
             <SectionCard title="Mon logement" style={{ marginBottom: 18 }}>
               <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17, color: NAVY_DEEP }}>{activeLease.properties?.name}</div>
               <div style={{ fontSize: 12.5, color: "#8A8577", marginTop: 4 }}>📍 {activeLease.properties?.address}</div>
-              <div style={{ display: "flex", gap: 24, marginTop: 14, paddingTop: 14, borderTop: `1px solid #F0ECE2` }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 14, paddingTop: 14, borderTop: `1px solid #F0ECE2` }}>
                 <div>
                   <div style={{ fontSize: 10.5, color: "#8A8577", textTransform: "uppercase" }}>Loyer mensuel</div>
                   <div style={{ fontFamily: "'IBM Plex Mono', monospace", fontSize: 17, fontWeight: 600, color: NAVY_DEEP }}>{Number(activeLease.rent).toLocaleString("fr-FR")} €</div>
@@ -1466,6 +1466,7 @@ function App() {
   const [data, setData] = useState({ buildings: [], properties: [], tenants: [], leases: [], payments: [], maintenance: [], employees: [], payslips: [], leaveRequests: [], documents: [], staffInvites: [], teamMembers: [] });
   const [inviteModal, setInviteModal] = useState(false);
   const [updatingMember, setUpdatingMember] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false); // menu latéral sur mobile
   const [updatingTicket, setUpdatingTicket] = useState(null);
   const [ticketFilter, setTicketFilter] = useState("open"); // 'open' | 'resolu' | 'all'
   const [invitingStaff, setInvitingStaff] = useState(false);
@@ -1978,8 +1979,9 @@ function App() {
   if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} notice={loginNotice} />;
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", color: INK }}>
-      <aside style={{ width: 240, background: NAVY_DEEP, color: "#fff", padding: "24px 16px", position: "sticky", top: 0, height: "100vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
+    <div className="app-shell" style={{ display: "flex", minHeight: "100vh", color: INK }}>
+      {menuOpen && <div className="drawer-backdrop" onClick={() => setMenuOpen(false)} />}
+      <aside className={`sidebar${menuOpen ? " open" : ""}`} style={{ width: 240, background: NAVY_DEEP, color: "#fff", padding: "24px 16px", position: "sticky", top: 0, height: "100vh", overflowY: "auto", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 22 }}>
           <div style={{ width: 34, height: 34, borderRadius: 4, background: GOLD, display: "flex", alignItems: "center", justifyContent: "center" }}>
             <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, color: NAVY_DEEP, fontSize: 16 }}>P</span>
@@ -1994,7 +1996,7 @@ function App() {
             const active = tab === item.key;
             const allowed = allowedTabs.includes(item.key);
             return (
-              <div key={item.key} className={allowed ? "navitem" : ""} onClick={() => allowed && setTab(item.key)}
+              <div key={item.key} className={allowed ? "navitem" : ""} onClick={() => { if (allowed) { setTab(item.key); setMenuOpen(false); } }}
                 style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", borderRadius: 4, marginBottom: 3, background: active ? "rgba(201,168,76,0.16)" : "transparent", borderLeft: active ? `2px solid ${GOLD}` : "2px solid transparent", opacity: allowed ? 1 : 0.4, cursor: allowed ? "pointer" : "not-allowed" }}>
                 <span style={{ fontSize: 13.5, color: active ? "#fff" : "#C4CBDA" }}>{item.label}</span>
                 {!allowed && <span style={{ fontSize: 11 }}>🔒</span>}
@@ -2014,22 +2016,24 @@ function App() {
         </div>
       </aside>
 
-      <main style={{ flex: 1, background: IVORY }}>
-        <div style={{ background: "#fff", padding: "16px 32px", borderBottom: `1px solid ${SAND}` }}>
+      <main style={{ flex: 1, minWidth: 0, background: IVORY }}>
+        <div className="topbar" style={{ background: "#fff", padding: "16px 32px", borderBottom: `1px solid ${SAND}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <button className="menu-btn" onClick={() => setMenuOpen(true)} aria-label="Ouvrir le menu"
+            style={{ display: "none", background: "none", border: "none", fontSize: 22, color: NAVY_DEEP, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
           <div style={{ fontFamily: "'Fraunces', serif", fontSize: 19, color: NAVY_DEEP }}>{NAV.find(n => n.key === tab)?.label}</div>
         </div>
-        <div style={{ padding: 32 }}>
+        <div className="content" style={{ padding: 32 }}>
           {dataError && <div style={{ background: "#FBEEEA", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{dataError}</div>}
 
           {tab === "overview" && (
             <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginBottom: 20 }}>
+              <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginBottom: 20 }}>
                 <KpiCard label="Biens immobiliers" value={kpis.total} sub={`${kpis.vacant} vacant(s)`} accent={NAVY} />
                 <KpiCard label="Taux d'occupation" value={`${kpis.rate}%`} sub={`${kpis.occupied} / ${kpis.total}`} accent={SAGE} />
                 {allowedTabs.includes("tenants") && <KpiCard label="Revenus encaissés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={GOLD} />}
                 {allowedTabs.includes("tenants") && <KpiCard label="Baux actifs" value={data.leases.filter(l => l.status === "actif").length} accent={NAVY} />}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
+              <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
                 {allowedTabs.includes("tenants") && <KpiCard label="Taux de recouvrement" value={`${kpis.recoveryRate}%`} sub={`${kpis.lateCount} paiement(s) en retard`} accent={kpis.recoveryRate >= 95 ? SAGE : CORAL} />}
                 {allowedTabs.includes("tenants") && <KpiCard label="Baux expirant sous 60j" value={kpis.expiringLeases} accent={kpis.expiringLeases > 0 ? GOLD : SAGE} />}
                 <KpiCard label="Tickets urgents" value={kpis.urgentTickets} sub={`${kpis.openTickets} ticket(s) ouvert(s) au total`} accent={kpis.urgentTickets > 0 ? CORAL : SAGE} />
@@ -2052,7 +2056,7 @@ function App() {
               <button style={addBtn} onClick={() => setModal("building")}>+ Ajouter un immeuble</button>
             }>
               {data.buildings.length === 0 && <div style={{ color: "#8A8577", fontSize: 13 }}>Aucun immeuble pour l'instant. Les biens sans immeuble restent listés individuellement dans le Portefeuille.</div>}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              <div className="grid-cards" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
                 {data.buildings.map(b => {
                   const units = data.properties.filter(p => p.building_id === b.id);
                   const occupied = units.filter(u => u.status === "occupe").length;
@@ -2117,7 +2121,7 @@ function App() {
               </div>
             }>
               {data.properties.length === 0 && <div style={{ color: "#8A8577", fontSize: 13, marginBottom: 12 }}>Aucun bien pour l'instant.</div>}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+              <div className="grid-cards" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
                 {data.properties.map(p => (
                   <div key={p.id} style={{ background: "#fff", border: `1px solid ${SAND}`, borderRadius: 4, overflow: "hidden", position: "relative" }}>
                     <div style={{ height: 3, background: statusColor[p.status] }} />
@@ -2195,7 +2199,7 @@ function App() {
                   📄 Rapport mensuel (PDF)
                 </button>
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
+              <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
                 <KpiCard label="Revenus collectés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={SAGE} />
                 <KpiCard label="Loyers en retard" value={`${kpis.late.toLocaleString("fr-FR")} €`} accent={CORAL} />
                 <KpiCard label="Paiements enregistrés" value={data.payments.length} accent={GOLD} />
@@ -2284,7 +2288,7 @@ function App() {
                     "propos-maintenance")}
                 />
               }>
-                <div style={{ display: "flex", gap: 6, marginBottom: 10, borderBottom: `1px solid ${SAND}` }}>
+                <div className="subtabs" style={{ display: "flex", gap: 6, marginBottom: 10, borderBottom: `1px solid ${SAND}` }}>
                   {[{ key: "open", label: `À traiter (${openCount})` }, { key: "resolu", label: `Résolus (${data.maintenance.length - openCount})` }, { key: "all", label: "Tous" }].map(f => (
                     <div key={f.key} onClick={() => setTicketFilter(f.key)} style={{ padding: "8px 12px", fontSize: 12.5, cursor: "pointer", color: ticketFilter === f.key ? NAVY_DEEP : "#8A8577", fontWeight: ticketFilter === f.key ? 600 : 400, borderBottom: ticketFilter === f.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>{f.label}</div>
                   ))}
@@ -2293,7 +2297,7 @@ function App() {
                 {tickets.map(t => {
                   const busy = updatingTicket === t.id;
                   return (
-                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, padding: "14px 0", borderBottom: "1px solid #F0ECE2" }}>
+                    <div key={t.id} className="stack-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, padding: "14px 0", borderBottom: "1px solid #F0ECE2" }}>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500, fontSize: 13.5 }}>{label(ticketCategoryLabel, t.category)} — {t.properties?.name || "—"}</div>
                         {t.description && <div style={{ fontSize: 12.5, color: INK, marginTop: 4, lineHeight: 1.45 }}>{t.description}</div>}
@@ -2331,8 +2335,8 @@ function App() {
               <div style={{ background: NAVY_DEEP, color: "#fff", padding: "9px 16px", borderRadius: 4, marginBottom: 18, fontSize: 12.5 }}>
                 🛡️ Données confidentielles — rôle Direction uniquement
               </div>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18, borderBottom: `1px solid ${SAND}` }}>
-                <div style={{ display: "flex", gap: 6 }}>
+              <div className="hr-head" style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 18, borderBottom: `1px solid ${SAND}` }}>
+                <div className="subtabs" style={{ display: "flex", gap: 6 }}>
                   {[{ key: "employees", label: "Employés" }, { key: "payroll", label: "Fiches de paie" }, { key: "leave", label: "Congés" }, { key: "invites", label: "Accès Équipe" }].map(s => (
                     <div key={s.key} onClick={() => setHrTab(s.key)} style={{ padding: "10px 16px", fontSize: 13, cursor: "pointer", color: hrTab === s.key ? NAVY_DEEP : "#8A8577", fontWeight: hrTab === s.key ? 600 : 400, borderBottom: hrTab === s.key ? `2px solid ${GOLD}` : "2px solid transparent" }}>{s.label}</div>
                   ))}
@@ -2365,7 +2369,7 @@ function App() {
                             <div style={{ fontSize: 11, letterSpacing: "0.06em", textTransform: "uppercase", color: GOLD, fontWeight: 600, marginBottom: 8 }}>
                               {role} ({list.length})
                             </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
+                            <div className="grid-cards" style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10 }}>
                               {list.map(e => (
                                 <div key={e.id} onClick={() => setViewingEmployee(e)}
                                   style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", border: `1px solid ${SAND}`, borderRadius: 4, cursor: "pointer" }}
@@ -2449,7 +2453,7 @@ function App() {
                     const isMe = m.id === profile.id;
                     const busy = updatingMember === m.id;
                     return (
-                      <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #F0ECE2" }}>
+                      <div key={m.id} className="stack-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "10px 0", borderBottom: "1px solid #F0ECE2" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                           <PhotoAvatar name={m.full_name} size={32} />
                           <div style={{ minWidth: 0 }}>

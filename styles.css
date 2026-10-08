@@ -6,3 +6,58 @@
   table.leases td { padding: 13px 12px; border-bottom: 1px solid #F0ECE2; font-size: 13.5px; }
   .spin { animation: spin 1s linear infinite; display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
+  html, body { overflow-x: hidden; }
+  input, select, textarea, button { font-family: inherit; }
+
+  /* ---------- Tablette ---------- */
+  @media (max-width: 1100px) {
+    .grid-kpi { grid-template-columns: repeat(2, 1fr) !important; }
+    .grid-cards { grid-template-columns: repeat(2, 1fr) !important; }
+  }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 768px) {
+    /* Menu latéral en tiroir, ouvert par le bouton ☰ */
+    .sidebar {
+      position: fixed !important; left: 0; top: 0; bottom: 0; z-index: 60;
+      height: 100% !important; width: 260px !important; max-width: 85vw;
+      transform: translateX(-100%); transition: transform .2s ease;
+    }
+    .sidebar.open { transform: translateX(0); box-shadow: 4px 0 24px rgba(0,0,0,.25); }
+    .drawer-backdrop { position: fixed; inset: 0; background: rgba(10,38,71,.5); z-index: 50; }
+    .menu-btn { display: block !important; }
+    .topbar { padding: 12px 16px !important; position: sticky; top: 0; z-index: 40; }
+    .content { padding: 16px !important; }
+
+    /* Grilles sur une colonne (indicateurs sur deux) */
+    .grid-kpi { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+    .grid-kpi > div { padding: 14px !important; }
+    .grid-kpi > div > div:nth-child(2) { font-size: 20px !important; }
+    .grid-cards { grid-template-columns: 1fr !important; }
+    .section-card { padding: 16px !important; }
+
+    /* Tableaux : défilement horizontal plutôt que débordement de la page */
+    table.leases { display: block; overflow-x: auto; white-space: nowrap; -webkit-overflow-scrolling: touch; }
+    table.leases td, table.leases th { padding: 10px 8px; font-size: 12.5px; }
+
+    /* Lignes (tickets, membres) : contenu puis actions en dessous */
+    .stack-row { flex-direction: column; align-items: stretch !important; }
+    .stack-row > div:last-child { align-items: flex-start !important; flex-wrap: wrap; }
+    .stack-row select { width: 100% !important; }
+
+    /* Onglets secondaires défilables */
+    .subtabs { overflow-x: auto; white-space: nowrap; max-width: 100%; -webkit-overflow-scrolling: touch; }
+    .subtabs > div { flex-shrink: 0; }
+    .hr-head > button { margin-left: auto; }
+
+    /* Fenêtres : plein écran ou presque */
+    .modal-box { padding: 20px !important; max-height: 92vh !important; }
+
+    /* Espace locataire */
+    .tenant-head { padding: 12px 16px !important; }
+    .tenant-head > div:first-child > div:last-child { font-size: 14px !important; }
+    .tenant-head > div:last-child > span:first-child { display: none; }
+
+    /* Évite le zoom automatique d'iOS sur les champs */
+    input, select, textarea { font-size: 16px !important; }
+  }
