@@ -295,21 +295,13 @@ async function deleteDocumentFile(path, token) {
 function pdfNum(n) {
   return Math.round(Number(n)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, " ") + " €";
 }
-async function buildClientPayslipPDF(employeeName, period, gross, net, role, department, employerName) {
+// Récapitulatif de salaire (brut / net). Ce n'est PAS un bulletin de paie : le détail
+// des cotisations n'est pas connu de l'application, il ne doit donc pas être inventé.
+// Le bulletin officiel est le PDF fourni par le cabinet de paie (bouton « Importer des fiches »).
+async function buildSalarySummaryPDF(employeeName, period, gross, net, role, department, employerName) {
   const { jsPDF } = await import('jspdf');
   const doc = new jsPDF();
-  const cotisationsTotal = Math.max(0, gross - net);
-  const cotisationLines = [
-    { label: "Sécurité sociale - Maladie", taux: 0.75, weight: 5 },
-    { label: "Assurance vieillesse plafonnée", taux: 6.90, weight: 35 },
-    { label: "Assurance vieillesse déplafonnée", taux: 0.40, weight: 4 },
-    { label: "Retraite complémentaire (T1)", taux: 3.15, weight: 15 },
-    { label: "Contribution équilibre général", taux: 0.86, weight: 5 },
-    { label: "CSG déductible", taux: 6.80, weight: 28 },
-    { label: "CSG/CRDS non déductible", taux: 2.90, weight: 8 },
-  ];
-  const csgCrdsNDAmount = cotisationsTotal * 8 / 100;
-  const netImposable = net + csgCrdsNDAmount;
+  const deductions = Math.max(0, gross - net);
 
   doc.setFillColor(10, 38, 71);
   doc.rect(0, 0, 210, 30, "F");
@@ -320,117 +312,46 @@ async function buildClientPayslipPDF(employeeName, period, gross, net, role, dep
   doc.setFont("helvetica", "normal");
   doc.setFontSize(10);
   doc.setTextColor(200, 205, 215);
-  doc.text("Bulletin de paie", 14, 22);
+  doc.text("Récapitulatif de salaire", 14, 22);
 
-  let y = 42;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(120, 120, 120);
-  doc.text("EMPLOYEUR", 14, y);
-  doc.text("SALARIÉ", 120, y);
-
-  y += 7;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.setTextColor(30, 30, 30);
-  doc.text(employerName, 14, y);
-  doc.text(employeeName, 120, y);
-
-  y += 6;
-  doc.setFontSize(9);
-  doc.setTextColor(110, 110, 110);
-  const posteLine = [role, department].filter(Boolean).join(" — ");
-  if (posteLine) doc.text(posteLine, 120, y);
+  let y = 44;
+  const label = (text, x) => { doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(120, 120, 120); doc.text(text, x, y); };
+  const value = (text, x) => { doc.setFont("helvetica", "normal"); doc.setFontSize(11); doc.setTextColor(30, 30, 30); doc.text(text, x, y); };
+  label("EMPLOYEUR", 14); label("SALARIÉ", 120);
+  y += 7; value(employerName, 14); value(employeeName, 120);
+  const poste = [role, department].filter(Boolean).join(" — ");
+  if (poste) { y += 6; doc.setFontSize(9); doc.setTextColor(110, 110, 110); doc.text(poste, 120, y); }
+  y += 12; label("PÉRIODE", 14);
+  y += 7; value(period, 14);
 
   y += 10;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(120, 120, 120);
-  doc.text("PÉRIODE", 14, y);
-
-  y += 7;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.setTextColor(30, 30, 30);
-  doc.text(period, 14, y);
-
-  y += 8;
   doc.setDrawColor(220, 220, 220);
   doc.line(14, y, 196, y);
+  const line = (text, amount, bold) => {
+    y += 10;
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setFontSize(bold ? 12 : 10.5);
+    doc.setTextColor(30, 30, 30);
+    doc.text(text, 14, y);
+    doc.text(amount, 196, y, { align: "right" });
+  };
+  line("Salaire brut", pdfNum(gross));
+  line("Cotisations et prélèvements salariaux (total)", `- ${pdfNum(deductions)}`);
+  y += 6;
+  doc.setFillColor(240, 243, 248);
+  doc.rect(14, y, 182, 16, "F");
+  y -= 1;
+  line("Net à payer", pdfNum(net), true);
 
-  y += 10;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
-  doc.setTextColor(10, 38, 71);
-  doc.text("Détail de la rémunération", 14, y);
-
-  y += 8;
-  doc.setFontSize(9);
-  doc.setTextColor(140, 140, 140);
-  doc.text("Rubrique", 14, y);
-  doc.text("Taux", 150, y, { align: "right" });
-  doc.text("Montant", 182, y, { align: "right" });
-  y += 2;
-  doc.setDrawColor(230, 230, 230);
-  doc.line(14, y, 196, y);
-
-  y += 7;
+  y += 20;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text("Salaire de base", 14, y);
-  doc.text(pdfNum(gross), 182, y, { align: "right" });
-
-  y += 8;
-  doc.setFont("helvetica", "bold");
   doc.setFontSize(9);
   doc.setTextColor(120, 120, 120);
-  doc.text("Cotisations salariales", 14, y);
-
-  y += 6;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(70, 70, 70);
-  for (const line of cotisationLines) {
-    const montant = cotisationsTotal * line.weight / 100;
-    doc.text(line.label, 16, y);
-    doc.text(`${line.taux.toFixed(2)} %`, 150, y, { align: "right" });
-    doc.text(`- ${pdfNum(montant)}`, 182, y, { align: "right" });
-    y += 6;
-  }
-
-  doc.setDrawColor(230, 230, 230);
-  doc.line(14, y, 196, y);
-  y += 7;
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(10);
-  doc.setTextColor(30, 30, 30);
-  doc.text("Total cotisations", 14, y);
-  doc.text(`- ${pdfNum(cotisationsTotal)}`, 182, y, { align: "right" });
-
-  y += 9;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(110, 110, 110);
-  doc.text("Net imposable (estimé)", 14, y);
-  doc.text(pdfNum(netImposable), 182, y, { align: "right" });
-
-  y += 10;
-  doc.setFillColor(240, 243, 248);
-  doc.rect(14, y, 182, 18, "F");
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(12);
-  doc.setTextColor(10, 38, 71);
-  doc.text("Net à payer", 20, y + 11);
-  doc.setFontSize(14);
-  doc.text(pdfNum(net), 182, y + 11, { align: "right" });
-
-  doc.setFont("helvetica", "normal");
+  doc.text(doc.splitTextToSize(
+    "Ce document est un récapitulatif établi à partir des montants brut et net enregistrés. Il ne constitue pas un bulletin de paie : " +
+    "le détail des cotisations figure sur le bulletin officiel remis par l'employeur.", 182), 14, y);
   doc.setFontSize(8);
-  doc.setTextColor(140, 140, 140);
-  doc.text("Ce document est à conserver sans limitation de durée. Montants estimés à titre indicatif.", 14, 275);
-  doc.text(`Document généré le ${new Date().toLocaleDateString("fr-FR")} — ${employerName}`, 14, 280);
-
+  doc.text(`Document généré le ${new Date().toLocaleDateString("fr-FR")} — ${employerName}`, 14, 285);
   return doc;
 }
 async function exportExcel(filename, sheetName, rows) {
@@ -443,14 +364,14 @@ async function exportExcel(filename, sheetName, rows) {
 
 async function exportPDFTable(title, columns, rows, filename) {
   const { jsPDF } = await import('jspdf');
-  await import('jspdf-autotable');
+  const { default: autoTable } = await import('jspdf-autotable');
   const doc = new jsPDF();
   doc.setFontSize(16);
   doc.text(title, 14, 18);
   doc.setFontSize(9);
   doc.setTextColor(130, 130, 130);
   doc.text(`Généré le ${new Date().toLocaleDateString("fr-FR")} — PropOS Enterprise`, 14, 25);
-  doc.autoTable({ startY: 32, head: [columns], body: rows, headStyles: { fillColor: [10, 38, 71] }, styles: { fontSize: 8 } });
+  autoTable(doc, { startY: 32, head: [columns], body: rows, headStyles: { fillColor: [10, 38, 71] }, styles: { fontSize: 8 } });
   doc.save(`${filename}.pdf`);
 }
 
@@ -503,7 +424,7 @@ const paymentStatusLabel = p => isPaid(p) ? "Payé" : isOverdue(p) ? "En retard"
 
 async function exportFinanceReport(fin, month, occupancy, filename) {
   const { jsPDF } = await import('jspdf');
-  await import('jspdf-autotable');
+  const { default: autoTable } = await import('jspdf-autotable');
   const doc = new jsPDF();
   const period = monthLabel(month);
   const row = p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", formatDate(p.due_date), pdfNum(p.amount)];
@@ -514,7 +435,7 @@ async function exportFinanceReport(fin, month, occupancy, filename) {
   doc.setTextColor(130, 130, 130);
   doc.text(`PropOS Enterprise — Généré le ${new Date().toLocaleDateString("fr-FR")}`, 14, 27);
 
-  doc.autoTable({
+  autoTable(doc, {
     startY: 34,
     head: [["Indicateur", "Valeur"]],
     body: [
@@ -537,7 +458,7 @@ async function exportFinanceReport(fin, month, occupancy, filename) {
     doc.setFontSize(12);
     doc.setTextColor(20, 20, 20);
     doc.text(title, 14, y);
-    doc.autoTable({ startY: y + 4, head: [head], body, headStyles: { fillColor: color }, styles: { fontSize: 9 } });
+    autoTable(doc, { startY: y + 4, head: [head], body, headStyles: { fillColor: color }, styles: { fontSize: 9 } });
   };
   if (fin.due.length) {
     section("Échéances de la période", ["Locataire", "Bien", "Échéance", "Montant", "Statut"],
@@ -1188,7 +1109,7 @@ function AuthCard({ children }) {
 }
 
 // Écran affiché au retour du lien « Réinitialiser le mot de passe »
-function ResetPasswordScreen({ token, onDone }) {
+function ResetPasswordScreen({ token, onDone, welcome }) {
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
   const [error, setError] = useState("");
@@ -1204,14 +1125,15 @@ function ResetPasswordScreen({ token, onDone }) {
       await updatePassword(token, password);
       // On ferme la session ouverte par le lien : la personne se reconnecte normalement
       fetch(`${SUPABASE_URL}/auth/v1/logout`, { method: "POST", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` } }).catch(() => {});
-      onDone("Mot de passe modifié. Connecte-toi avec ton nouveau mot de passe.");
+      onDone(welcome ? "Ton accès est prêt ✓ Connecte-toi avec ton email et ce mot de passe." : "Mot de passe modifié. Connecte-toi avec ton nouveau mot de passe.");
     } catch (e) { setError(e.message); }
     finally { setSaving(false); }
   }
 
   return (
     <AuthCard>
-      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 6 }}>Nouveau mot de passe</div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 6 }}>{welcome ? "Bienvenue sur PropOS" : "Nouveau mot de passe"}</div>
+      {welcome && <div style={{ fontSize: 12.5, color: INK, marginBottom: 8, lineHeight: 1.5 }}>Choisis le mot de passe de ton espace.</div>}
       <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 16, lineHeight: 1.5 }}>
         Au moins 8 caractères, avec une minuscule, une majuscule et un chiffre.
       </div>
@@ -1511,12 +1433,14 @@ function App() {
   // Retour d'un lien envoyé par email (réinitialisation, confirmation, lien expiré)
   const [authRedirect] = useState(() => {
     const r = readAuthRedirect();
-    if (r?.type === "recovery") saveSession(null); // on ne restaure pas une ancienne session par-dessus
+    if (r?.type === "recovery" || r?.type === "invite") saveSession(null); // on ne restaure pas une ancienne session par-dessus
     return r;
   });
-  const [recoveryToken, setRecoveryToken] = useState(authRedirect?.type === "recovery" ? authRedirect.access_token : null);
+  // Lien « mot de passe oublié » ou invitation : la personne choisit son mot de passe
+  const [recoveryToken, setRecoveryToken] = useState(authRedirect?.type === "recovery" || authRedirect?.type === "invite" ? authRedirect.access_token : null);
+  const isInvite = authRedirect?.type === "invite";
   const [loginNotice, setLoginNotice] = useState(
-    authRedirect?.type === "signup" || authRedirect?.type === "email_change" || authRedirect?.type === "invite"
+    authRedirect?.type === "signup" || authRedirect?.type === "email_change"
       ? "Adresse email confirmée ✓ Tu peux maintenant te connecter."
       : ""
   );
@@ -1533,6 +1457,7 @@ function App() {
   const [updatingMember, setUpdatingMember] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false); // menu latéral sur mobile
   const [financeMonth, setFinanceMonth] = useState(currentMonthKey); // 'AAAA-MM' ou 'all'
+  const [orgName, setOrgName] = useState("");
   const [updatingTicket, setUpdatingTicket] = useState(null);
   const [ticketFilter, setTicketFilter] = useState("open"); // 'open' | 'resolu' | 'all'
   const [invitingStaff, setInvitingStaff] = useState(false);
@@ -1689,6 +1614,7 @@ function App() {
           ]);
         }
         setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites, teamMembers });
+        query("organizations", token, "?select=name").then(rows => setOrgName(rows[0]?.name || "")).catch(() => {});
       } catch (e) { setDataError(e.message); }
     })();
     // Pas de rechargement complet à chaque renouvellement du jeton : seulement au changement d'utilisateur
@@ -1822,9 +1748,9 @@ function App() {
         const url = await getSignedPayslipUrl(p.pdf_path, session.access_token);
         window.open(url, "_blank");
       } else {
-        const doc = await buildClientPayslipPDF(
+        const doc = await buildSalarySummaryPDF(
           p.employees?.full_name || "—", p.period, Number(p.gross_amount), Number(p.net_amount),
-          p.employees?.role_title || null, p.employees?.department || null, "PropOS Enterprise"
+          p.employees?.role_title || null, p.employees?.department || null, orgName || "Employeur"
         );
         window.open(doc.output("bloburl"), "_blank");
       }
@@ -2040,7 +1966,7 @@ function App() {
     return { total, occupied, vacant, rate, collected, late, lateCount, recoveryRate, expiringLeases, urgentTickets, openTickets };
   }, [data]);
 
-  if (recoveryToken) return <ResetPasswordScreen token={recoveryToken} onDone={msg => { setRecoveryToken(null); setAuthError(""); setLoginNotice(msg); }} />;
+  if (recoveryToken) return <ResetPasswordScreen token={recoveryToken} welcome={isInvite} onDone={msg => { setRecoveryToken(null); setAuthError(""); setLoginNotice(msg); }} />;
   if (restoring) return <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center", color: "#C4CBDA", fontSize: 13 }}>Chargement…</div>;
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
   if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} notice={loginNotice} />;
@@ -2510,7 +2436,7 @@ function App() {
                             <td>{p.status}</td>
                             <td>
                               <span onClick={() => viewPayslip(p)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>
-                                {p.pdf_path ? "Voir le PDF" : "Générer & voir"}
+                                {p.pdf_path ? "Voir le bulletin" : "Récapitulatif"}
                               </span>
                             </td>
                           </tr>

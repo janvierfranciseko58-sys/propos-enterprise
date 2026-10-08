@@ -1,0 +1,16 @@
+# Configuration Supabase CLI (déploiement des Edge Functions)
+project_id = "vdpvejwdexclcuwfiout"
+
+# Ces fonctions sont appelées par pg_cron / trigger avec l'en-tête x-cron-secret
+# (vérifié dans le code) et non avec un jeton utilisateur.
+[functions.send-notifications]
+verify_jwt = false
+
+[functions.send-payslips]
+verify_jwt = false
+
+[functions.monthly-financial-report]
+verify_jwt = false
+
+[functions.onboard-tenant]
+verify_jwt = false
