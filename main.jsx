@@ -454,32 +454,97 @@ async function exportPDFTable(title, columns, rows, filename) {
   doc.save(`${filename}.pdf`);
 }
 
-async function exportFinanceReport(kpis, latePayments, filename) {
+// ----------------------------------------------------------------------------
+// Calculs financiers par mois
+// ----------------------------------------------------------------------------
+const localISODate = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const currentMonthKey = () => localISODate().slice(0, 7);
+const monthKeyOf = date => (date || "").slice(0, 7);
+function monthLabel(key) {
+  if (key === "all") return "Tous les mois";
+  const [y, m] = key.split("-").map(Number);
+  const s = new Date(y, m - 1, 1).toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+const isPaid = p => p.status === "paye";
+// En retard = non payé et échéance dépassée (sans dépendre d'une mise à jour du statut en base)
+const isOverdue = (p, today = localISODate()) => !isPaid(p) && (p.status === "en_retard" || (!!p.due_date && p.due_date < today));
+const sumAmounts = list => list.reduce((s, p) => s + Number(p.amount || 0), 0);
+
+function computeMonthlyFinance(payments, month) {
+  const today = localISODate();
+  const inMonth = date => month === "all" || monthKeyOf(date) === month;
+  const due = payments.filter(p => inMonth(p.due_date));                          // échéances appelées sur la période
+  const dueElapsed = due.filter(p => p.due_date && p.due_date <= today);          // échéances déjà arrivées à terme
+  const received = payments.filter(p => isPaid(p) && inMonth(p.paid_date || p.due_date)); // encaissements datés de la période
+  const overdue = payments.filter(p => isOverdue(p, today));                     // impayés à ce jour, toutes périodes
+  const dueTotal = sumAmounts(due);
+  const dueCollected = sumAmounts(due.filter(isPaid));
+  const elapsedTotal = sumAmounts(dueElapsed);
+  return {
+    due, received, overdue,
+    dueTotal, dueCollected, dueRemaining: dueTotal - dueCollected,
+    receivedTotal: sumAmounts(received),
+    overdueTotal: sumAmounts(overdue),
+    // Recouvrement calculé sur les échéances déjà passées, pour ne pas pénaliser les loyers pas encore dus
+    recoveryRate: elapsedTotal ? Math.round((sumAmounts(dueElapsed.filter(isPaid)) / elapsedTotal) * 100) : null,
+  };
+}
+// Mois proposés : mois en cours + mois présents dans les paiements, du plus récent au plus ancien
+function availableMonths(payments) {
+  const keys = new Set([currentMonthKey()]);
+  for (const p of payments) {
+    if (p.due_date) keys.add(monthKeyOf(p.due_date));
+    if (p.paid_date) keys.add(monthKeyOf(p.paid_date));
+  }
+  return [...keys].sort().reverse();
+}
+const paymentStatusLabel = p => isPaid(p) ? "Payé" : isOverdue(p) ? "En retard" : "À venir";
+
+async function exportFinanceReport(fin, month, occupancy, filename) {
   const { jsPDF } = await import('jspdf');
   await import('jspdf-autotable');
   const doc = new jsPDF();
+  const period = monthLabel(month);
+  const row = p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", formatDate(p.due_date), pdfNum(p.amount)];
+
   doc.setFontSize(18);
-  doc.text("Rapport financier mensuel", 14, 20);
+  doc.text(month === "all" ? "Rapport financier — toutes périodes" : `Rapport financier — ${period}`, 14, 20);
   doc.setFontSize(10);
   doc.setTextColor(130, 130, 130);
   doc.text(`PropOS Enterprise — Généré le ${new Date().toLocaleDateString("fr-FR")}`, 14, 27);
 
-  doc.setFontSize(11);
-  doc.setTextColor(20, 20, 20);
-  doc.text(`Revenus collectés : ${pdfNum(kpis.collected)}`, 14, 40);
-  doc.text(`Loyers en retard : ${pdfNum(kpis.late)}`, 14, 47);
-  doc.text(`Taux d'occupation : ${kpis.rate}% (${kpis.occupied} / ${kpis.total} biens)`, 14, 54);
+  doc.autoTable({
+    startY: 34,
+    head: [["Indicateur", "Valeur"]],
+    body: [
+      ["Loyers appelés (échéances de la période)", pdfNum(fin.dueTotal)],
+      ["dont encaissés", pdfNum(fin.dueCollected)],
+      ["Restant dû sur la période", pdfNum(fin.dueRemaining)],
+      ["Encaissements reçus pendant la période (toutes échéances)", pdfNum(fin.receivedTotal)],
+      ["Taux de recouvrement (échéances arrivées à terme)", fin.recoveryRate === null ? "—" : `${fin.recoveryRate} %`],
+      ["Impayés à ce jour (toutes périodes)", `${pdfNum(fin.overdueTotal)} (${fin.overdue.length} échéance(s))`],
+      ["Taux d'occupation actuel", `${occupancy.rate} % (${occupancy.occupied} / ${occupancy.total} biens)`],
+    ],
+    headStyles: { fillColor: [10, 38, 71] },
+    styles: { fontSize: 9.5 },
+    columnStyles: { 1: { halign: "right", fontStyle: "bold" } },
+  });
 
-  if (latePayments.length) {
+  const section = (title, head, body, color) => {
+    let y = doc.lastAutoTable.finalY + 12;
+    if (y > 260) { doc.addPage(); y = 20; }
     doc.setFontSize(12);
-    doc.text("Loyers en retard — détail", 14, 66);
-    doc.autoTable({
-      startY: 71,
-      head: [["Locataire", "Bien", "Échéance", "Montant"]],
-      body: latePayments.map(p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", p.due_date, pdfNum(p.amount)]),
-      headStyles: { fillColor: [196, 102, 79] },
-      styles: { fontSize: 9 },
-    });
+    doc.setTextColor(20, 20, 20);
+    doc.text(title, 14, y);
+    doc.autoTable({ startY: y + 4, head: [head], body, headStyles: { fillColor: color }, styles: { fontSize: 9 } });
+  };
+  if (fin.due.length) {
+    section("Échéances de la période", ["Locataire", "Bien", "Échéance", "Montant", "Statut"],
+      fin.due.map(p => [...row(p), paymentStatusLabel(p)]), [10, 38, 71]);
+  }
+  if (fin.overdue.length) {
+    section("Impayés à ce jour — détail", ["Locataire", "Bien", "Échéance", "Montant"], fin.overdue.map(row), [196, 102, 79]);
   }
   doc.save(`${filename}.pdf`);
 }
@@ -1374,14 +1439,14 @@ function TenantPortal({ session, tenant, onLogout }) {
                 <tbody>
                   {data.payments.map(p => (
                     <tr key={p.id}>
-                      <td style={{ fontSize: 12.5 }}>{p.due_date}</td>
+                      <td style={{ fontSize: 12.5 }}>{formatDate(p.due_date)}</td>
                       <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
                       <td>
                         <span style={{
                           fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
-                          background: p.status === "paye" ? "#E9F1EA" : "#FBEEEA",
-                          color: p.status === "paye" ? SAGE : CORAL,
-                        }}>{p.status === "paye" ? "Payé" : p.status === "en_retard" ? "En retard" : "En attente"}</span>
+                          background: isPaid(p) ? "#E9F1EA" : isOverdue(p) ? "#FBEEEA" : "#FBF3E3",
+                          color: isPaid(p) ? SAGE : isOverdue(p) ? CORAL : "#A8862F",
+                        }}>{paymentStatusLabel(p)}</span>
                       </td>
                     </tr>
                   ))}
@@ -1467,6 +1532,7 @@ function App() {
   const [inviteModal, setInviteModal] = useState(false);
   const [updatingMember, setUpdatingMember] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false); // menu latéral sur mobile
+  const [financeMonth, setFinanceMonth] = useState(currentMonthKey); // 'AAAA-MM' ou 'all'
   const [updatingTicket, setUpdatingTicket] = useState(null);
   const [ticketFilter, setTicketFilter] = useState("open"); // 'open' | 'resolu' | 'all'
   const [invitingStaff, setInvitingStaff] = useState(false);
@@ -1961,11 +2027,12 @@ function App() {
     const occupied = data.properties.filter(p => p.status === "occupe").length;
     const vacant = data.properties.filter(p => p.status === "vacant").length;
     const rate = total ? Math.round((occupied / total) * 100) : 0;
-    const collected = data.payments.filter(p => p.status === "paye").reduce((s, p) => s + Number(p.amount), 0);
-    const late = data.payments.filter(p => p.status === "en_retard").reduce((s, p) => s + Number(p.amount), 0);
-    const paidCount = data.payments.filter(p => p.status === "paye").length;
-    const lateCount = data.payments.filter(p => p.status === "en_retard").length;
-    const recoveryRate = (paidCount + lateCount) ? Math.round((paidCount / (paidCount + lateCount)) * 100) : 100;
+    // Indicateurs financiers du mois en cours (impayés : à ce jour, toutes périodes)
+    const month = computeMonthlyFinance(data.payments, currentMonthKey());
+    const collected = month.receivedTotal;
+    const late = month.overdueTotal;
+    const lateCount = month.overdue.length;
+    const recoveryRate = month.recoveryRate;
     const in60Days = new Date(Date.now() + 60 * 24 * 3600 * 1000).toISOString().slice(0, 10);
     const expiringLeases = data.leases.filter(l => l.status === "actif" && l.end_date && l.end_date <= in60Days).length;
     const urgentTickets = data.maintenance.filter(t => t.status !== "resolu" && t.priority === "urgent").length;
@@ -2030,11 +2097,11 @@ function App() {
               <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginBottom: 20 }}>
                 <KpiCard label="Biens immobiliers" value={kpis.total} sub={`${kpis.vacant} vacant(s)`} accent={NAVY} />
                 <KpiCard label="Taux d'occupation" value={`${kpis.rate}%`} sub={`${kpis.occupied} / ${kpis.total}`} accent={SAGE} />
-                {allowedTabs.includes("tenants") && <KpiCard label="Revenus encaissés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={GOLD} />}
+                {allowedTabs.includes("tenants") && <KpiCard label="Encaissé ce mois" value={`${kpis.collected.toLocaleString("fr-FR")} €`} sub={monthLabel(currentMonthKey())} accent={GOLD} />}
                 {allowedTabs.includes("tenants") && <KpiCard label="Baux actifs" value={data.leases.filter(l => l.status === "actif").length} accent={NAVY} />}
               </div>
               <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
-                {allowedTabs.includes("tenants") && <KpiCard label="Taux de recouvrement" value={`${kpis.recoveryRate}%`} sub={`${kpis.lateCount} paiement(s) en retard`} accent={kpis.recoveryRate >= 95 ? SAGE : CORAL} />}
+                {allowedTabs.includes("tenants") && <KpiCard label="Recouvrement du mois" value={kpis.recoveryRate === null ? "—" : `${kpis.recoveryRate}%`} sub={`${kpis.lateCount} impayé(s) à ce jour`} accent={kpis.recoveryRate === null || kpis.recoveryRate >= 95 ? SAGE : CORAL} />}
                 {allowedTabs.includes("tenants") && <KpiCard label="Baux expirant sous 60j" value={kpis.expiringLeases} accent={kpis.expiringLeases > 0 ? GOLD : SAGE} />}
                 <KpiCard label="Tickets urgents" value={kpis.urgentTickets} sub={`${kpis.openTickets} ticket(s) ouvert(s) au total`} accent={kpis.urgentTickets > 0 ? CORAL : SAGE} />
               </div>
@@ -2190,84 +2257,109 @@ function App() {
             </SectionCard>
           )}
 
-          {tab === "finance" && (
-            <>
-              <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
-                <button
-                  onClick={() => exportFinanceReport(kpis, data.payments.filter(p => p.status !== "paye"), "propos-rapport-financier")}
-                  style={{ background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 3, padding: "9px 16px", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}>
-                  📄 Rapport mensuel (PDF)
-                </button>
-              </div>
-              <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 18, marginBottom: 20 }}>
-                <KpiCard label="Revenus collectés" value={`${kpis.collected.toLocaleString("fr-FR")} €`} accent={SAGE} />
-                <KpiCard label="Loyers en retard" value={`${kpis.late.toLocaleString("fr-FR")} €`} accent={CORAL} />
-                <KpiCard label="Paiements enregistrés" value={data.payments.length} accent={GOLD} />
-              </div>
+          {tab === "finance" && (() => {
+            const fin = computeMonthlyFinance(data.payments, financeMonth);
+            const period = monthLabel(financeMonth);
+            const unpaid = data.payments.filter(p => !isPaid(p)).sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)));
+            const received = [...fin.received].sort((a, b) => String(b.paid_date || b.due_date).localeCompare(String(a.paid_date || a.due_date)));
+            const receivedRows = received.map(p => ({
+              Locataire: p.leases?.tenants?.full_name || "", Bien: p.leases?.properties?.name || "",
+              "Échéance": p.due_date, "Date de paiement": p.paid_date || p.due_date, "Montant (€)": Number(p.amount),
+            }));
+            return (
+              <>
+                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12.5, color: "#8A8577" }}>
+                    Période
+                    <select style={{ ...inputStyle, width: "auto", padding: "7px 10px" }} value={financeMonth} onChange={e => setFinanceMonth(e.target.value)}>
+                      {availableMonths(data.payments).map(m => <option key={m} value={m}>{monthLabel(m)}{m === currentMonthKey() ? " (en cours)" : ""}</option>)}
+                      <option value="all">Tous les mois</option>
+                    </select>
+                  </label>
+                  <button
+                    onClick={() => exportFinanceReport(fin, financeMonth, kpis, `propos-rapport-financier-${financeMonth}`)}
+                    style={{ background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 3, padding: "9px 16px", fontSize: 12.5, fontWeight: 500, cursor: "pointer" }}>
+                    📄 Rapport {financeMonth === "all" ? "global" : period.toLowerCase()} (PDF)
+                  </button>
+                </div>
+                <div className="grid-kpi" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 18, marginBottom: 20 }}>
+                  <KpiCard label="Loyers appelés" value={`${fin.dueTotal.toLocaleString("fr-FR")} €`}
+                    sub={`dont ${fin.dueCollected.toLocaleString("fr-FR")} € encaissés`} accent={NAVY} />
+                  <KpiCard label="Encaissé sur la période" value={`${fin.receivedTotal.toLocaleString("fr-FR")} €`}
+                    sub={`${fin.received.length} paiement(s) reçu(s)`} accent={SAGE} />
+                  <KpiCard label="Taux de recouvrement" value={fin.recoveryRate === null ? "—" : `${fin.recoveryRate}%`}
+                    sub="sur les échéances arrivées à terme" accent={fin.recoveryRate === null || fin.recoveryRate >= 95 ? SAGE : CORAL} />
+                  <KpiCard label="Impayés à ce jour" value={`${fin.overdueTotal.toLocaleString("fr-FR")} €`}
+                    sub={`${fin.overdue.length} échéance(s), toutes périodes`} accent={fin.overdueTotal > 0 ? CORAL : SAGE} />
+                </div>
 
-              {data.payments.filter(p => p.status !== "paye").length > 0 && (
-                <SectionCard title="À encaisser" style={{ marginBottom: 18 }}
-                  action={<span style={{ fontSize: 12, color: "#8A8577" }}>{data.payments.filter(p => p.status !== "paye").length} en attente</span>}>
-                  <table className="leases">
-                    <thead><tr><th>Locataire</th><th>Bien</th><th>Échéance</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
-                    <tbody>
-                      {data.payments.filter(p => p.status !== "paye").map(p => (
-                        <tr key={p.id}>
-                          <td>{p.leases?.tenants?.full_name || "—"}</td>
-                          <td>{p.leases?.properties?.name || "—"}</td>
-                          <td style={{ fontSize: 12.5, color: "#8A8577" }}>{p.due_date}</td>
-                          <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
-                          <td>
-                            <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: "#FBEEEA", color: CORAL }}>
-                              {p.status === "en_retard" ? "En retard" : "En attente"}
-                            </span>
-                          </td>
-                          <td>
-                            <button disabled={submitting} onClick={() => markPaymentPaid(p.id)}
-                              style={{ background: SAGE, color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                              ✓ Marquer reçu
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </SectionCard>
-              )}
-
-              <SectionCard title="Historique des paiements" action={
-                <ExportButtons
-                  onExcel={() => exportExcel("propos-historique-paiements", "Paiements", data.payments.filter(p => p.status === "paye").map(p => ({
-                    Locataire: p.leases?.tenants?.full_name || "", Bien: p.leases?.properties?.name || "",
-                    "Date de paiement": p.paid_date || p.due_date, "Montant (€)": p.amount, Statut: "Payé",
-                  })))}
-                  onPDF={() => exportPDFTable("Historique des paiements", ["Locataire", "Bien", "Date", "Montant"],
-                    data.payments.filter(p => p.status === "paye").map(p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", p.paid_date || p.due_date, pdfNum(p.amount)]),
-                    "propos-historique-paiements")}
-                />
-              }>
-                <table className="leases">
-                  <thead><tr><th>Locataire</th><th>Bien</th><th>Échéance</th><th>Montant</th><th>Statut</th></tr></thead>
-                  <tbody>
-                    {data.payments.filter(p => p.status === "paye").slice(0, 25).map(p => (
-                      <tr key={p.id}>
-                        <td>{p.leases?.tenants?.full_name || "—"}</td>
-                        <td>{p.leases?.properties?.name || "—"}</td>
-                        <td style={{ fontSize: 12.5, color: "#8A8577" }}>{p.paid_date || p.due_date}</td>
-                        <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
-                        <td><span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: "#E9F1EA", color: SAGE }}>Payé</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {data.payments.filter(p => p.status === "paye").length > 25 && (
-                  <div style={{ fontSize: 12, color: "#8A8577", marginTop: 10, textAlign: "center" }}>
-                    Affichage des 25 paiements les plus récents sur {data.payments.filter(p => p.status === "paye").length} (l'export contient la totalité).
-                  </div>
+                {unpaid.length > 0 && (
+                  <SectionCard title="À encaisser" style={{ marginBottom: 18 }}
+                    action={<span style={{ fontSize: 12, color: "#8A8577" }}>{fin.overdue.length} en retard · {unpaid.length - fin.overdue.length} à venir</span>}>
+                    <table className="leases">
+                      <thead><tr><th>Locataire</th><th>Bien</th><th>Échéance</th><th>Montant</th><th>Statut</th><th></th></tr></thead>
+                      <tbody>
+                        {unpaid.map(p => {
+                          const late = isOverdue(p);
+                          return (
+                            <tr key={p.id}>
+                              <td>{p.leases?.tenants?.full_name || "—"}</td>
+                              <td>{p.leases?.properties?.name || "—"}</td>
+                              <td style={{ fontSize: 12.5, color: "#8A8577" }}>{formatDate(p.due_date)}</td>
+                              <td style={{ fontFamily: "'IBM Plex Mono', monospace", fontWeight: 600 }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                              <td>
+                                <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: late ? "#FBEEEA" : "#FBF3E3", color: late ? CORAL : "#A8862F" }}>
+                                  {late ? "En retard" : "À venir"}
+                                </span>
+                              </td>
+                              <td>
+                                <button disabled={submitting} onClick={() => markPaymentPaid(p.id)}
+                                  style={{ background: SAGE, color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  ✓ Marquer reçu
+                                </button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </SectionCard>
                 )}
-              </SectionCard>
-            </>
-          )}
+
+                <SectionCard title={`Encaissements — ${period}`} action={
+                  <ExportButtons
+                    onExcel={() => exportExcel(`propos-encaissements-${financeMonth}`, "Encaissements", receivedRows)}
+                    onPDF={() => exportPDFTable(`Encaissements — ${period}`, ["Locataire", "Bien", "Échéance", "Payé le", "Montant"],
+                      received.map(p => [p.leases?.tenants?.full_name || "—", p.leases?.properties?.name || "—", formatDate(p.due_date), formatDate(p.paid_date || p.due_date), pdfNum(p.amount)]),
+                      `propos-encaissements-${financeMonth}`)}
+                  />
+                }>
+                  {received.length === 0 && <div style={{ fontSize: 13, color: "#8A8577" }}>Aucun paiement reçu sur cette période.</div>}
+                  {received.length > 0 && (
+                    <table className="leases">
+                      <thead><tr><th>Locataire</th><th>Bien</th><th>Échéance</th><th>Payé le</th><th>Montant</th></tr></thead>
+                      <tbody>
+                        {received.slice(0, 50).map(p => (
+                          <tr key={p.id}>
+                            <td>{p.leases?.tenants?.full_name || "—"}</td>
+                            <td>{p.leases?.properties?.name || "—"}</td>
+                            <td style={{ fontSize: 12.5, color: "#8A8577" }}>{formatDate(p.due_date)}</td>
+                            <td style={{ fontSize: 12.5, color: "#8A8577" }}>{formatDate(p.paid_date || p.due_date)}</td>
+                            <td style={{ fontFamily: "'IBM Plex Mono', monospace" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                  {received.length > 50 && (
+                    <div style={{ fontSize: 12, color: "#8A8577", marginTop: 10, textAlign: "center" }}>
+                      Affichage des 50 paiements les plus récents sur {received.length} (l'export contient la totalité).
+                    </div>
+                  )}
+                </SectionCard>
+              </>
+            );
+          })()}
 
           {tab === "maintenance" && (() => {
             const priorityRank = { urgent: 0, eleve: 1, moyen: 2, faible: 3 };
