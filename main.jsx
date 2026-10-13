@@ -7,6 +7,9 @@ import './styles.css';
 // ============================================================================
 const SUPABASE_URL = "https://vdpvejwdexclcuwfiout.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_edQZanOgXvZzl4hsqFRc9w_Q9S3WKqP";
+// Abonnements Stripe : passer à true une fois Stripe configuré (voir STRIPE_SETUP.md).
+// Tant que c'est false, aucune agence n'est bloquée en fin d'essai.
+const BILLING_ENABLED = false;
 // ============================================================================
 
 const NAVY = "#0F3460", NAVY_DEEP = "#0A2647", GOLD = "#C9A84C";
@@ -14,7 +17,7 @@ const IVORY = "#F7F4EE", INK = "#23262E", SAGE = "#5C8A6B", CORAL = "#C4664F", S
 
 const roles = { direction: "Direction", finance: "Finance", gestion_locative: "Gestion Locative", maintenance: "Maintenance" };
 const PERMISSIONS = {
-  direction: ["overview", "buildings", "portfolio", "tenants", "finance", "maintenance", "hr"],
+  direction: ["overview", "buildings", "portfolio", "tenants", "finance", "maintenance", "hr", "billing"],
   finance: ["overview", "buildings", "portfolio", "tenants", "finance"],
   gestion_locative: ["overview", "buildings", "portfolio", "tenants", "maintenance"],
   maintenance: ["overview", "maintenance"],
@@ -27,6 +30,7 @@ const NAV = [
   { key: "finance", label: "Finance" },
   { key: "maintenance", label: "Maintenance" },
   { key: "hr", label: "Ressources Humaines" },
+  { key: "billing", label: "Abonnement" },
 ];
 const statusColor = { occupe: SAGE, vacant: GOLD, maintenance: CORAL };
 const statusLabel = { occupe: "Occupé", vacant: "Vacant", maintenance: "Maintenance" };
@@ -1164,6 +1168,89 @@ function ResetPasswordScreen({ token, onDone, welcome }) {
   );
 }
 
+// ----- Abonnement de l'agence (page réservée à la Direction) -----
+const subscriptionLabel = { trialing: "Période d'essai", active: "Abonnement actif", past_due: "Paiement en échec", canceled: "Abonnement résilié" };
+
+async function callBilling(action, token) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/billing`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json.error || "Le service de paiement est indisponible.");
+  return json;
+}
+
+function BillingPanel({ session, orgInfo, lots, returnStatus, suspended }) {
+  const [info, setInfo] = useState(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+
+  useEffect(() => {
+    if (!BILLING_ENABLED) return;
+    callBilling("info", session.access_token).then(setInfo).catch(e => setError(e.message));
+  }, [session.access_token, returnStatus]);
+
+  async function go(action) {
+    setError(""); setBusy(action);
+    try {
+      const { url } = await callBilling(action, session.access_token);
+      window.location.href = url; // page de paiement / espace client Stripe
+    } catch (e) { setError(e.message); setBusy(""); }
+  }
+
+  const status = info?.status || orgInfo?.subscription_status;
+  const statusColor = { active: SAGE, trialing: "#A8862F", past_due: CORAL, canceled: CORAL }[status] || "#8A8577";
+  const euros = cents => cents == null ? "—" : `${(cents / 100).toLocaleString("fr-FR", { minimumFractionDigits: cents % 100 ? 2 : 0 })} €`;
+  const row = (label, value) => (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: "1px solid #F0ECE2", fontSize: 13.5 }}>
+      <span style={{ color: "#8A8577" }}>{label}</span><span style={{ fontWeight: 500, textAlign: "right" }}>{value}</span>
+    </div>
+  );
+
+  return (
+    <SectionCard title="Abonnement" style={{ maxWidth: 640 }}>
+      {suspended && (
+        <AuthError>L'accès de ton agence est suspendu : abonne-toi pour retrouver toutes tes données, elles sont intactes.</AuthError>
+      )}
+      {returnStatus === "success" && <AuthInfo>Merci ! Ton abonnement est enregistré. Son activation peut prendre quelques secondes.</AuthInfo>}
+      {returnStatus === "cancel" && <AuthInfo>Paiement annulé : rien n'a été débité.</AuthInfo>}
+
+      {row("Statut", <span style={{ color: statusColor }}>{subscriptionLabel[status] || "—"}</span>)}
+      {status === "trialing" && (info?.trial_ends_at || orgInfo?.trial_ends_at) && row("Fin de l'essai", formatDate(info?.trial_ends_at || orgInfo?.trial_ends_at))}
+      {row("Lots gérés", info?.lots ?? lots)}
+      {BILLING_ENABLED && row("Montant mensuel estimé (HT)", euros(info?.estimate_cents))}
+      {BILLING_ENABLED && (info?.current_period_end || orgInfo?.current_period_end) && status === "active" && row("Prochaine facture", formatDate(info?.current_period_end || orgInfo?.current_period_end))}
+
+      <div style={{ marginTop: 18 }}>
+        {!BILLING_ENABLED ? (
+          <div style={{ fontSize: 12.5, color: "#8A8577", lineHeight: 1.55 }}>
+            Le paiement en ligne sera bientôt disponible. D'ici là, ton agence utilise PropOS sans limitation.
+          </div>
+        ) : (
+          <>
+            <AuthError>{error}</AuthError>
+            {info?.has_subscription ? (
+              <button style={{ ...authBtnStyle, width: "auto", padding: "10px 20px" }} disabled={!!busy} onClick={() => go("portal")}>
+                {busy === "portal" ? "Ouverture…" : "Gérer mon abonnement (factures, carte, résiliation)"}
+              </button>
+            ) : (
+              <button style={{ ...authBtnStyle, width: "auto", padding: "10px 20px" }} disabled={!!busy || !info} onClick={() => go("checkout")}>
+                {busy === "checkout" ? "Ouverture…" : "S'abonner"}
+              </button>
+            )}
+            <div style={{ fontSize: 11.5, color: "#8A8577", marginTop: 10, lineHeight: 1.5 }}>
+              Facturation mensuelle selon le nombre de lots, ajustée automatiquement chaque nuit. Paiement sécurisé par Stripe.
+              {status === "trialing" && " Si tu t'abonnes pendant l'essai, le premier prélèvement n'a lieu qu'à sa fin."}
+            </div>
+          </>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
 // Premier accès d'un compte équipe confirmé qui n'appartient à aucune agence
 function CreateAgencyScreen({ session, onCreated, onLogout }) {
   const [orgName, setOrgName] = useState("");
@@ -1526,7 +1613,12 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false); // menu latéral sur mobile
   const [financeMonth, setFinanceMonth] = useState(currentMonthKey); // 'AAAA-MM' ou 'all'
   const [orgName, setOrgName] = useState("");
-  const [orgInfo, setOrgInfo] = useState(null); // { subscription_status, trial_ends_at }
+  const [orgInfo, setOrgInfo] = useState(null); // { subscription_status, trial_ends_at, … }
+  const [billingReturn] = useState(() => {
+    const v = new URLSearchParams(window.location.search).get("billing");
+    if (v) window.history.replaceState(null, "", window.location.pathname);
+    return v;
+  });
   const [updatingTicket, setUpdatingTicket] = useState(null);
   const [ticketFilter, setTicketFilter] = useState("open"); // 'open' | 'resolu' | 'all'
   const [invitingStaff, setInvitingStaff] = useState(false);
@@ -1682,13 +1774,20 @@ function App() {
           ]);
         }
         setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites, teamMembers });
-        query("organizations", token, "?select=name,subscription_status,trial_ends_at").then(rows => { setOrgName(rows[0]?.name || ""); setOrgInfo(rows[0] || null); }).catch(() => {});
+        const loadOrg = () => query("organizations", token, "?select=name,subscription_status,trial_ends_at,current_period_end,billed_quantity")
+          .then(rows => { setOrgName(rows[0]?.name || ""); setOrgInfo(rows[0] || null); }).catch(() => {});
+        loadOrg();
+        if (billingReturn === "success") { setTab("billing"); setTimeout(loadOrg, 4000); }
       } catch (e) { setDataError(e.message); }
     })();
     // Pas de rechargement complet à chaque renouvellement du jeton : seulement au changement d'utilisateur
   }, [session?.user?.id, profile]);
 
-  const allowedTabs = profile ? PERMISSIONS[profile.role] : [];
+  // Fin d'essai sans abonnement, ou abonnement résilié : accès suspendu (uniquement si la facturation est active)
+  const trialExpired = orgInfo?.subscription_status === "trialing" && !!orgInfo.trial_ends_at && new Date(orgInfo.trial_ends_at) < new Date();
+  const accessSuspended = BILLING_ENABLED && !!orgInfo && (orgInfo.subscription_status === "canceled" || trialExpired);
+  const allowedTabs = !profile ? [] : accessSuspended ? PERMISSIONS[profile.role].filter(k => k === "billing") : PERMISSIONS[profile.role];
+  useEffect(() => { if (accessSuspended && profile?.role === "direction" && tab !== "billing") setTab("billing"); }, [accessSuspended, profile?.role, tab]);
 
   async function createStaffInvite(fields) {
     setInvitingStaff(true);
@@ -2037,6 +2136,15 @@ function App() {
   if (recoveryToken) return <ResetPasswordScreen token={recoveryToken} welcome={isInvite} onDone={msg => { setRecoveryToken(null); setAuthError(""); setLoginNotice(msg); }} />;
   if (restoring) return <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center", color: "#C4CBDA", fontSize: 13 }}>Chargement…</div>;
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
+  if (session && profile && accessSuspended && profile.role !== "direction") return (
+    <AuthCard>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 8 }}>Accès suspendu</div>
+      <div style={{ fontSize: 13, color: "#8A8577", lineHeight: 1.55, marginBottom: 18 }}>
+        L'abonnement de {orgName || "ton agence"} n'est plus actif. Les données sont conservées : contacte ta Direction pour réactiver l'accès.
+      </div>
+      <button style={authBtnStyle} onClick={handleLogout}>Se déconnecter</button>
+    </AuthCard>
+  );
   if (session && needsAgency) return (
     <CreateAgencyScreen session={session} onLogout={handleLogout}
       onCreated={newProfile => { setNeedsAgency(false); setProfile(newProfile); setTab("overview"); }} />
@@ -2060,6 +2168,7 @@ function App() {
           {NAV.map(item => {
             const active = tab === item.key;
             const allowed = allowedTabs.includes(item.key);
+            if (item.key === "billing" && !allowed) return null; // page réservée à la Direction, masquée pour les autres
             return (
               <div key={item.key} className={allowed ? "navitem" : ""} onClick={() => { if (allowed) { setTab(item.key); setMenuOpen(false); } }}
                 style={{ display: "flex", justifyContent: "space-between", padding: "10px 12px", borderRadius: 4, marginBottom: 3, background: active ? "rgba(201,168,76,0.16)" : "transparent", borderLeft: active ? `2px solid ${GOLD}` : "2px solid transparent", opacity: allowed ? 1 : 0.4, cursor: allowed ? "pointer" : "not-allowed" }}>
@@ -2089,7 +2198,7 @@ function App() {
         </div>
         <div className="content" style={{ padding: 32 }}>
           {dataError && <div style={{ background: "#FBEEEA", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{dataError}</div>}
-          {profile.role === "direction" && orgInfo?.subscription_status === "trialing" && orgInfo.trial_ends_at && (() => {
+          {BILLING_ENABLED && profile.role === "direction" && orgInfo?.subscription_status === "trialing" && orgInfo.trial_ends_at && (() => {
             const days = Math.max(0, Math.ceil((new Date(orgInfo.trial_ends_at) - Date.now()) / 86400000));
             return (
               <div style={{ background: days <= 5 ? "#FBEEEA" : "#FBF3E3", color: days <= 5 ? CORAL : "#8A6A1F", padding: "10px 16px", borderRadius: 4, marginBottom: 20, fontSize: 12.5 }}>
@@ -2097,6 +2206,10 @@ function App() {
               </div>
             );
           })()}
+
+          {tab === "billing" && profile.role === "direction" && (
+            <BillingPanel session={session} orgInfo={orgInfo} lots={data.properties.length} returnStatus={billingReturn} suspended={accessSuspended} />
+          )}
 
           {tab === "overview" && (
             <>
