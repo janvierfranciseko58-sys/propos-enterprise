@@ -8,8 +8,9 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
-const DIRECTION_EMAIL = Deno.env.get("DIRECTION_EMAIL")!;
-const FROM_EMAIL = "PropOS <notifications@mypropos.app>";
+const PLATFORM_ALERT_EMAIL = Deno.env.get("DIRECTION_EMAIL")!; // alertes techniques (exploitant)
+const SENDER = "notifications@mypropos.app";
+const fromName = (orgName?: string) => `${(orgName || "PropOS").replace(/[<>"]/g, "")} via PropOS <${SENDER}>`;
 const APP_URL = "https://mypropos.app/";
 const FUNCTION_NAME = "onboard-tenant";
 
@@ -25,11 +26,11 @@ async function isAuthorized(req: Request): Promise<boolean> {
   return !error && data === true;
 }
 
-async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
+async function sendEmail(to: string, subject: string, html: string, orgName?: string): Promise<boolean> {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: FROM_EMAIL, to, subject, html }),
+    body: JSON.stringify({ from: fromName(orgName), to, subject, html }),
   });
   if (!res.ok) console.error("Erreur envoi email:", await res.text());
   return res.ok;
@@ -45,6 +46,7 @@ Deno.serve(async (req) => {
 
     const { data: tenant } = await supabase.from("tenants").select("id, email, full_name, tenant_user_id").eq("id", lease.tenant_id).single();
     const { data: property } = await supabase.from("properties").select("name").eq("id", lease.property_id).single();
+    const { data: org } = await supabase.from("organizations").select("name").eq("id", lease.organization_id).single();
     if (!tenant?.email) return new Response(JSON.stringify({ error: "Locataire sans email" }), { status: 400 });
 
     let accessHtml: string;
@@ -74,14 +76,15 @@ Deno.serve(async (req) => {
        <p>Votre bail pour le bien <strong>${esc(property?.name ?? "")}</strong> vient d'être enregistré.</p>
        <p>Votre espace locataire vous permet de consulter vos documents et vos paiements, et de signaler un problème dans votre logement.</p>
        ${accessHtml}
-       <p>Cordialement,<br/>La gestion locative</p>`,
+       <p>Cordialement,<br/>${esc(org?.name ?? "La gestion locative")}</p>`,
+      org?.name,
     );
 
     return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.error(`[CRITICAL] ${FUNCTION_NAME}:`, msg, { lease_id: lease?.id });
-    await sendEmail(DIRECTION_EMAIL, `🚨 Échec : ${FUNCTION_NAME}`,
+    await sendEmail(PLATFORM_ALERT_EMAIL, `🚨 Échec : ${FUNCTION_NAME}`,
       `<p>L'email d'accueil du locataire n'a pas pu être envoyé (bail ${esc(lease?.id ?? "?")}).</p><p>${esc(msg)}</p>`);
     return new Response(JSON.stringify({ error: "Internal error" }), { status: 500 });
   }

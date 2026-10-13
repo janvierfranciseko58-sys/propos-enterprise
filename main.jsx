@@ -141,12 +141,24 @@ function saveSession(s) {
 function loadSession() {
   try { return JSON.parse(localStorage.getItem(SESSION_KEY)); } catch (_) { return null; }
 }
+// Supabase renvoie au plus 1000 lignes par requête : on lit par pages, dans un ordre
+// stable (tri demandé puis id), pour ne jamais tronquer silencieusement les données.
+const PAGE_SIZE = 1000;
 async function query(table, token, params = "") {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${params}`, {
-    headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) throw new Error(`Erreur lecture ${table}`);
-  return res.json();
+  let p = params || "?";
+  if (/[?&]order=/.test(p)) p = p.replace(/([?&]order=[^&]*)/, "$1,id.asc");
+  else p += (p.endsWith("?") ? "" : "&") + "order=id.asc";
+  const rows = [];
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const res = await fetch(`${SUPABASE_URL}/rest/v1/${table}${p}`, {
+      headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${token}`, "Range-Unit": "items", Range: `${from}-${from + PAGE_SIZE - 1}` },
+    });
+    if (res.status === 416) return rows; // plus rien au-delà de la dernière page
+    if (!res.ok) throw new Error(`Erreur lecture ${table}`);
+    const page = await res.json();
+    rows.push(...page);
+    if (page.length < PAGE_SIZE) return rows;
+  }
 }
 // Appel d'une fonction SQL exposée par Supabase ; renvoie [] si elle échoue ou n'existe pas
 async function callRpc(fn, token, body = {}) {
@@ -1152,12 +1164,60 @@ function ResetPasswordScreen({ token, onDone, welcome }) {
   );
 }
 
+// Premier accès d'un compte équipe confirmé qui n'appartient à aucune agence
+function CreateAgencyScreen({ session, onCreated, onLogout }) {
+  const [orgName, setOrgName] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  async function submit() {
+    setError(""); setSaving(true);
+    try {
+      const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/create_organization`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_org_name: orgName, p_full_name: fullName }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.message || "Impossible de créer l'agence.");
+      onCreated(Array.isArray(json) ? json[0] : json);
+    } catch (e) { setError(e.message); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <AuthCard>
+      <div style={{ fontFamily: "'Fraunces', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 6 }}>Crée ton agence</div>
+      <div style={{ fontSize: 12.5, color: "#8A8577", marginBottom: 16, lineHeight: 1.5 }}>
+        Ton compte n'est rattaché à aucune agence. Crée la tienne pour commencer : tu en seras la Direction,
+        avec <b>30 jours d'essai gratuit</b>. Tu pourras ensuite inviter ton équipe.
+      </div>
+      <label style={{ fontSize: 12, color: "#8A8577" }}>Nom de l'agence</label>
+      <input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="Agence Riviera Immobilier" style={authInputStyle} />
+      <label style={{ fontSize: 12, color: "#8A8577" }}>Ton nom</label>
+      <input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Prénom Nom" autoComplete="name" style={authInputStyle} />
+      <AuthError>{error}</AuthError>
+      <button onClick={submit} disabled={saving || orgName.trim().length < 2 || !fullName.trim()} style={authBtnStyle}>
+        {saving ? "Création…" : "Créer mon agence"}
+      </button>
+      <div style={{ fontSize: 11.5, color: "#8A8577", marginTop: 16, lineHeight: 1.5, borderTop: `1px solid ${SAND}`, paddingTop: 12 }}>
+        Tu rejoins une agence existante ? Demande à sa Direction de t'inviter avec cette adresse email, puis reconnecte-toi.
+      </div>
+      <div style={{ textAlign: "center", marginTop: 12 }}>
+        <span onClick={onLogout} style={authLinkStyle}>← Se déconnecter</span>
+      </div>
+    </AuthCard>
+  );
+}
+
 function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, signupInfo, notice }) {
   const [mode, setMode] = useState("staff"); // 'staff' | 'tenant'
   const [view, setView] = useState("login"); // 'login' | 'signup' | 'forgot'
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [resetState, setResetState] = useState({ sending: false, sent: false, error: "" });
+  const [newAgency, setNewAgency] = useState(false); // inscription d'une nouvelle agence (et non d'un invité)
   const signupMode = view === "signup";
   const setSignupMode = on => setView(on ? "signup" : "login");
 
@@ -1210,7 +1270,7 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
     <AuthCard>
         <div style={{ display: "flex", gap: 4, background: IVORY, borderRadius: 4, padding: 4, marginBottom: 20 }}>
           <div style={tabBtn(mode === "staff")} onClick={() => { setMode("staff"); setSignupMode(false); }}>Espace Équipe</div>
-          <div style={tabBtn(mode === "tenant")} onClick={() => setMode("tenant")}>Espace Locataire</div>
+          <div style={tabBtn(mode === "tenant")} onClick={() => { setMode("tenant"); setNewAgency(false); }}>Espace Locataire</div>
         </div>
 
         {!signupMode && !error && <AuthInfo>{notice}</AuthInfo>}
@@ -1220,7 +1280,9 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
             <div style={{ fontSize: 12, color: "#8A8577", marginBottom: 14, lineHeight: 1.5 }}>
               {mode === "tenant"
                 ? <>Utilise la <b>même adresse email</b> que celle enregistrée par ton agence sur ton bail — ton accès sera relié automatiquement.</>
-                : <>Utilise l'<b>adresse email</b> sur laquelle tu as reçu ton invitation de la Direction — ton accès sera relié automatiquement.</>}
+                : newAgency
+                  ? <><b>Nouvelle agence</b> : crée ton compte, confirme ton adresse email, puis connecte-toi pour créer ton agence (30 jours d'essai gratuit).</>
+                  : <>Utilise l'<b>adresse email</b> sur laquelle tu as reçu ton invitation de la Direction — ton accès sera relié automatiquement.</>}
             </div>
             <label style={{ fontSize: 12, color: "#8A8577" }}>Email</label>
             <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" style={authInputStyle} />
@@ -1229,10 +1291,10 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
             <AuthError>{error}</AuthError>
             <AuthInfo>{signupInfo}</AuthInfo>
             <button onClick={() => (mode === "tenant" ? onTenantSignup(email, password) : onStaffSignup(email, password))} disabled={loading} style={authBtnStyle}>
-              {loading ? "Création…" : "Créer mon accès"}
+              {loading ? "Création…" : newAgency ? "Créer mon compte" : "Créer mon accès"}
             </button>
             <div style={{ textAlign: "center", marginTop: 14 }}>
-              <span onClick={() => setSignupMode(false)} style={authLinkStyle}>← J'ai déjà un compte</span>
+              <span onClick={() => { setSignupMode(false); setNewAgency(false); }} style={authLinkStyle}>← J'ai déjà un compte</span>
             </div>
           </>
         ) : (
@@ -1249,8 +1311,14 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
               {loading ? "Connexion…" : "Se connecter"}
             </button>
             <div style={{ textAlign: "center", marginTop: 14 }}>
-              <span onClick={() => setSignupMode(true)} style={authLinkStyle}>Première connexion ? Créer mon accès →</span>
+              <span onClick={() => { setNewAgency(false); setSignupMode(true); }} style={authLinkStyle}>Première connexion ? Créer mon accès →</span>
             </div>
+            {mode === "staff" && (
+              <div style={{ textAlign: "center", marginTop: 18, paddingTop: 14, borderTop: `1px solid ${SAND}`, fontSize: 12, color: "#8A8577" }}>
+                Vous gérez une agence ?{" "}
+                <span onClick={() => { setNewAgency(true); setSignupMode(true); }} style={{ ...authLinkStyle, fontWeight: 600 }}>Essayer PropOS gratuitement →</span>
+              </div>
+            )}
           </>
         )}
     </AuthCard>
@@ -1458,6 +1526,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false); // menu latéral sur mobile
   const [financeMonth, setFinanceMonth] = useState(currentMonthKey); // 'AAAA-MM' ou 'all'
   const [orgName, setOrgName] = useState("");
+  const [orgInfo, setOrgInfo] = useState(null); // { subscription_status, trial_ends_at }
   const [updatingTicket, setUpdatingTicket] = useState(null);
   const [ticketFilter, setTicketFilter] = useState("open"); // 'open' | 'resolu' | 'all'
   const [invitingStaff, setInvitingStaff] = useState(false);
@@ -1474,9 +1543,12 @@ function App() {
   const [submitting, setSubmitting] = useState(false);
 
   const [restoring, setRestoring] = useState(() => !!loadSession());
+  // Compte équipe confirmé mais rattaché à aucune agence : écran « Crée ton agence »
+  const [needsAgency, setNeedsAgency] = useState(false);
 
   // Rattache la session au profil équipe ou locataire, puis la mémorise
   async function establishSession(auth, mode) {
+    setNeedsAgency(false);
     if (mode === "tenant") {
       let tenantRows = await query("tenants", auth.access_token, `?tenant_user_id=eq.${auth.user.id}&select=*`);
       // Fiche locataire créée par l'agence après l'inscription : on la rattache maintenant
@@ -1487,8 +1559,8 @@ function App() {
       let profiles = await query("profiles", auth.access_token, `?id=eq.${auth.user.id}&select=*`);
       // Invitation envoyée après la création du compte (ex. membre retiré puis réinvité)
       if (!profiles.length) profiles = await callRpc("claim_staff_invite", auth.access_token);
-      if (!profiles.length) throw new Error("Aucun accès Équipe n'est associé à ce compte. Demande à la Direction de t'envoyer une invitation, puis reconnecte-toi.");
-      setProfile(profiles[0]);
+      if (profiles.length) setProfile(profiles[0]);
+      else setNeedsAgency(true);
     }
     const stored = { ...auth, mode };
     saveSession(stored);
@@ -1558,11 +1630,7 @@ function App() {
     try {
       const result = await signUp(email, password);
       if (result.access_token) {
-        const profiles = await query("profiles", result.access_token, `?id=eq.${result.user.id}&select=*`);
-        if (!profiles.length) {
-          setSignupInfo("Compte créé, mais aucune invitation n'est encore associée à cette adresse email. Contacte la Direction.");
-          return;
-        }
+        // Email confirmé d'office : invitation rattachée, sinon écran « Crée ton agence »
         await establishSession(result, "staff");
       } else {
         setSignupInfo("Compte créé ! Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.");
@@ -1576,7 +1644,7 @@ function App() {
       fetch(`${SUPABASE_URL}/auth/v1/logout`, { method: "POST", headers: { apikey: SUPABASE_ANON_KEY, Authorization: `Bearer ${session.access_token}` } }).catch(() => {});
     }
     saveSession(null);
-    setSession(null); setProfile(null); setTenantProfile(null);
+    setSession(null); setProfile(null); setTenantProfile(null); setNeedsAgency(false);
   }
 
    const [showBulkImport, setShowBulkImport] = useState(false);
@@ -1614,7 +1682,7 @@ function App() {
           ]);
         }
         setData({ buildings, properties, tenants, leases, payments, maintenance, employees, payslips, leaveRequests, documents, staffInvites, teamMembers });
-        query("organizations", token, "?select=name").then(rows => setOrgName(rows[0]?.name || "")).catch(() => {});
+        query("organizations", token, "?select=name,subscription_status,trial_ends_at").then(rows => { setOrgName(rows[0]?.name || ""); setOrgInfo(rows[0] || null); }).catch(() => {});
       } catch (e) { setDataError(e.message); }
     })();
     // Pas de rechargement complet à chaque renouvellement du jeton : seulement au changement d'utilisateur
@@ -1969,6 +2037,10 @@ function App() {
   if (recoveryToken) return <ResetPasswordScreen token={recoveryToken} welcome={isInvite} onDone={msg => { setRecoveryToken(null); setAuthError(""); setLoginNotice(msg); }} />;
   if (restoring) return <div style={{ minHeight: "100vh", background: NAVY_DEEP, display: "flex", alignItems: "center", justifyContent: "center", color: "#C4CBDA", fontSize: 13 }}>Chargement…</div>;
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
+  if (session && needsAgency) return (
+    <CreateAgencyScreen session={session} onLogout={handleLogout}
+      onCreated={newProfile => { setNeedsAgency(false); setProfile(newProfile); setTab("overview"); }} />
+  );
   if (!session || !profile) return <LoginScreen onLogin={handleLogin} onTenantSignup={handleTenantSignup} onStaffSignup={handleStaffSignup} error={authError} signupInfo={signupInfo} loading={authLoading} notice={loginNotice} />;
 
   return (
@@ -1981,7 +2053,7 @@ function App() {
           </div>
           <div>
             <div style={{ fontFamily: "'Fraunces', serif", fontSize: 17 }}>PropOS</div>
-            <div style={{ fontSize: 10.5, color: "#9AA6BC" }}>ENTERPRISE — LIVE</div>
+            <div style={{ fontSize: 10.5, color: "#9AA6BC", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={orgName}>{orgName || "ENTERPRISE"}</div>
           </div>
         </div>
         <nav>
@@ -2017,6 +2089,14 @@ function App() {
         </div>
         <div className="content" style={{ padding: 32 }}>
           {dataError && <div style={{ background: "#FBEEEA", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{dataError}</div>}
+          {profile.role === "direction" && orgInfo?.subscription_status === "trialing" && orgInfo.trial_ends_at && (() => {
+            const days = Math.max(0, Math.ceil((new Date(orgInfo.trial_ends_at) - Date.now()) / 86400000));
+            return (
+              <div style={{ background: days <= 5 ? "#FBEEEA" : "#FBF3E3", color: days <= 5 ? CORAL : "#8A6A1F", padding: "10px 16px", borderRadius: 4, marginBottom: 20, fontSize: 12.5 }}>
+                {days > 0 ? <>Période d'essai : <b>{days} jour{days > 1 ? "s" : ""} restant{days > 1 ? "s" : ""}</b> (jusqu'au {formatDate(orgInfo.trial_ends_at)}).</> : <>Ta période d'essai est terminée.</>}
+              </div>
+            );
+          })()}
 
           {tab === "overview" && (
             <>
@@ -2037,9 +2117,28 @@ function App() {
                 </div>
               )}
               {kpis.total === 0 && (
-                <div style={{ textAlign: "center", color: "#8A8577", padding: 40 }}>
-                  Aucune donnée pour l'instant — ajoute un bien via Supabase (Table Editor → properties → Insert row).
-                </div>
+                <SectionCard title="Bien démarrer avec PropOS">
+                  <div style={{ fontSize: 12.5, color: "#8A8577", marginBottom: 14 }}>Ton agence est prête. Quatre étapes pour la mettre en route :</div>
+                  {[
+                    { n: 1, label: "Ajoute tes immeubles", hint: "Optionnel si tu gères des biens isolés.", tab: "buildings", modal: "building", done: data.buildings.length > 0 },
+                    { n: 2, label: "Ajoute tes biens", hint: "Référence, adresse, loyer et charges.", tab: "portfolio", modal: "property", done: data.properties.length > 0 },
+                    { n: 3, label: "Enregistre tes locataires et leurs baux", hint: "Chaque locataire reçoit un email pour activer son espace.", tab: "tenants", modal: "tenant", done: data.leases.length > 0 },
+                    { n: 4, label: "Invite ton équipe", hint: "Finance, gestion locative, maintenance : chacun voit ce qui le concerne.", tab: "hr", done: (data.teamMembers?.length || 0) > 1 },
+                  ].filter(step => allowedTabs.includes(step.tab)).map(step => (
+                    <div key={step.n} className="stack-row" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: "1px solid #F0ECE2" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <span style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, background: step.done ? SAGE : IVORY, color: step.done ? "#fff" : NAVY_DEEP }}>{step.done ? "✓" : step.n}</span>
+                        <div>
+                          <div style={{ fontSize: 13.5, fontWeight: 500 }}>{step.label}</div>
+                          <div style={{ fontSize: 11.5, color: "#8A8577" }}>{step.hint}</div>
+                        </div>
+                      </div>
+                      <button style={addBtn} onClick={() => { setTab(step.tab); if (step.tab === "hr") { setHrTab("invites"); setInviteModal(true); } else if (step.modal) setModal(step.modal); }}>
+                        {step.done ? "Ajouter" : "Commencer"}
+                      </button>
+                    </div>
+                  ))}
+                </SectionCard>
               )}
             </>
           )}

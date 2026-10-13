@@ -8,9 +8,10 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
-const DIRECTION_EMAIL = Deno.env.get("DIRECTION_EMAIL")!;
+const PLATFORM_ALERT_EMAIL = Deno.env.get("DIRECTION_EMAIL")!; // alertes techniques (exploitant)
 const SLACK_WEBHOOK_URL = Deno.env.get("SLACK_WEBHOOK_URL");
-const FROM_EMAIL = "PropOS <notifications@mypropos.app>";
+const SENDER = "notifications@mypropos.app";
+const fromName = (orgName?: string) => `${(orgName || "PropOS").replace(/[<>"]/g, "")} via PropOS <${SENDER}>`;
 const FUNCTION_NAME = "send-payslips";
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
@@ -41,15 +42,15 @@ async function getStoredPdfBase64(path: string): Promise<string | null> {
   return await blobToBase64(data);
 }
 
-async function sendPayslipEmail(to: string, employeeName: string, period: string, pdfBase64: string): Promise<boolean> {
+async function sendPayslipEmail(to: string, employeeName: string, period: string, pdfBase64: string, orgName?: string): Promise<boolean> {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      from: FROM_EMAIL,
+      from: fromName(orgName),
       to,
       subject: `Votre bulletin de paie – ${period}`,
-      html: `<p>Bonjour ${esc(employeeName)},</p><p>Veuillez trouver ci-joint votre bulletin de paie pour la période <b>${esc(period)}</b>.</p><p>Cordialement,<br>La Direction</p>`,
+      html: `<p>Bonjour ${esc(employeeName)},</p><p>Veuillez trouver ci-joint votre bulletin de paie pour la période <b>${esc(period)}</b>.</p><p>Cordialement,<br>${esc(orgName ?? "La Direction")}</p>`,
       attachments: [{ filename: `bulletin-de-paie-${period.replace(/\s+/g, "-")}.pdf`, content: pdfBase64 }],
     }),
   });
@@ -77,7 +78,7 @@ async function alertCritical(error: unknown) {
       method: "POST",
       headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        from: FROM_EMAIL, to: DIRECTION_EMAIL, subject: `🚨 Échec : ${FUNCTION_NAME}`,
+        from: fromName(), to: PLATFORM_ALERT_EMAIL, subject: `🚨 Échec : ${FUNCTION_NAME}`,
         html: `<h2>Erreur dans ${FUNCTION_NAME}</h2><p><strong>Horodatage :</strong> ${timestamp}</p><p><strong>Erreur :</strong> ${esc(errorMessage)}</p>`,
       }),
     }).catch((e) => console.error("Échec email de secours :", e));
@@ -90,7 +91,7 @@ Deno.serve(async (req) => {
   try {
     const { data: payslips, error } = await supabase
       .from("payslips")
-      .select("id, period, pdf_path, employees(full_name, email)")
+      .select("id, period, pdf_path, employees(full_name, email), organizations(name)")
       .eq("status", "payee")
       .is("emailed_at", null)
       .not("pdf_path", "is", null);
@@ -103,7 +104,7 @@ Deno.serve(async (req) => {
       if (!employee?.email) continue;
       const pdf = await getStoredPdfBase64(p.pdf_path as string);
       if (!pdf) { failed.push(p.id); continue; }
-      const ok = await sendPayslipEmail(employee.email, employee.full_name, p.period, pdf);
+      const ok = await sendPayslipEmail(employee.email, employee.full_name, p.period, pdf, (p as any).organizations?.name);
       if (ok) {
         await supabase.from("payslips").update({ emailed_at: new Date().toISOString() }).eq("id", p.id);
         sent++;
