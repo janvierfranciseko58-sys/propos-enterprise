@@ -814,7 +814,7 @@ function AuthCard({ children }) {
             La gestion de vos résidences, du bail à la conciergerie.
           </h1>
           <p style={{ marginTop: 22, fontSize: 15.5, lineHeight: 1.6, color: "#B9C9CE", maxWidth: 400 }}>
-            Loyers, baux, maintenance et équipe réunis en un seul endroit, pour les agences de la Riviera et leurs locataires.
+            Loyers, baux, maintenance et équipe réunis en un seul endroit, pour les agences immobilières et leurs locataires.
           </p>
           <div style={{ width: 56, height: 1.5, background: GOLD, marginTop: 30 }} />
         </div>
@@ -990,7 +990,7 @@ function CreateAgencyScreen({ session, onCreated, onLogout }) {
         avec <b>30 jours d'essai gratuit</b>. Tu pourras ensuite inviter ton équipe.
       </div>
       <label style={{ fontSize: 13, fontWeight: 500, color: INK }}>Nom de l'agence</label>
-      <input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="Agence Riviera Immobilier" style={authInputStyle} />
+      <input value={orgName} onChange={e => setOrgName(e.target.value)} placeholder="Agence Martin Immobilier" style={authInputStyle} />
       <label style={{ fontSize: 13, fontWeight: 500, color: INK }}>Ton nom</label>
       <input value={fullName} onChange={e => setFullName(e.target.value)} placeholder="Prénom Nom" autoComplete="name" style={authInputStyle} />
       <AuthError>{error}</AuthError>
