@@ -1,17 +1,50 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', sans-serif; background: #F7F4EE; }
-  .navitem:hover { background: rgba(201,168,76,0.1); }
+  body {
+    font-family: 'Inter', sans-serif; background: #EEF2F3; color: #172A31;
+    font-variant-numeric: tabular-nums; -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
+  }
+  input, select, textarea, button { font-family: inherit; }
+  html, body { overflow-x: hidden; }
+
+  /* Champs : bordure laiton au focus, focus clavier visible partout */
+  input:focus, select:focus, textarea:focus { outline: none; border-color: #B08D57 !important; box-shadow: 0 0 0 3px rgba(176,141,87,0.18); }
+  button:focus-visible, [role="tab"]:focus-visible, a:focus-visible, span[onclick]:focus-visible { outline: 2px solid #B08D57; outline-offset: 2px; }
+  button { transition: filter .15s ease, opacity .15s ease; }
+  button:not(:disabled):hover { filter: brightness(1.08); }
+  button:disabled { opacity: .55; cursor: not-allowed !important; }
+
+  /* Menu latéral */
+  .navitem { transition: background .15s ease; }
+  .navitem:hover { background: rgba(255,255,255,0.06); }
+
+  /* Tableaux : en-têtes en casse normale, lignes aérées */
   table.leases { border-collapse: collapse; width: 100%; }
-  table.leases th { text-align: left; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; color: #8A8577; font-weight: 600; padding: 10px 12px; border-bottom: 1px solid #E7E0D2; }
-  table.leases td { padding: 13px 12px; border-bottom: 1px solid #F0ECE2; font-size: 13.5px; }
+  table.leases th { text-align: left; font-size: 12.5px; color: #5F7177; font-weight: 500; padding: 10px 12px; border-bottom: 1px solid #D7DFE2; }
+  table.leases td { padding: 14px 12px; border-bottom: 1px solid #E3E9EB; font-size: 13.5px; }
+  table.leases tbody tr:hover td { background: #F6F9F9; }
+
+  /* Indicateurs : un seul panneau découpé par des filets (au lieu de cartes séparées) */
+  .grid-kpi { gap: 1px !important; background: #D7DFE2; border: 1px solid #D7DFE2; border-radius: 12px; overflow: hidden; }
+
+  /* Phrase d'accueil du tableau de bord : seule animation de l'application */
+  .today { animation: today-in .6s cubic-bezier(.2,.7,.2,1) both; }
+  .today button { background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer; border-bottom: 1.5px solid #B08D57; }
+  .today button:hover { color: #1F5566; filter: none; }
+  @keyframes today-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .today { animation: none; } * { transition: none !important; } }
+
   .spin { animation: spin 1s linear infinite; display: inline-block; }
   @keyframes spin { to { transform: rotate(360deg); } }
-  html, body { overflow-x: hidden; }
-  input, select, textarea, button { font-family: inherit; }
 
   /* ---------- Tablette ---------- */
+  @media (max-width: 900px) {
+    .auth-layout { grid-template-columns: minmax(0, 1fr) !important; }
+    .auth-panel { display: none !important; }
+    .auth-brand-mobile { display: flex !important; }
+  }
   @media (max-width: 1100px) {
     .grid-kpi { grid-template-columns: repeat(2, 1fr) !important; }
+    .grid-kpi > div:last-child:nth-child(odd) { grid-column: 1 / -1; }
     .grid-cards { grid-template-columns: repeat(2, 1fr) !important; }
   }
 
@@ -30,9 +63,10 @@
     .content { padding: 16px !important; }
 
     /* Grilles sur une colonne (indicateurs sur deux) */
-    .grid-kpi { grid-template-columns: repeat(2, 1fr) !important; gap: 10px !important; }
+    .grid-kpi { grid-template-columns: repeat(2, 1fr) !important; }
     .grid-kpi > div { padding: 14px !important; }
-    .grid-kpi > div > div:nth-child(2) { font-size: 20px !important; }
+    .kpi-value { font-size: 24px !important; }
+    .today { font-size: 24px !important; }
     .grid-cards { grid-template-columns: 1fr !important; }
     .section-card { padding: 16px !important; }
 
