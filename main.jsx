@@ -180,14 +180,14 @@ function ExportButtons({ onExcel, onPDF }) {
 }
 
 // ----- UI atoms -----
-// Indicateur : une cellule du panneau .grid-kpi (séparateurs fins), chiffre en Bodoni.
+// Indicateur : une cellule du panneau .grid-kpi (séparateurs fins), chiffre mis en avant.
 // La couleur ne sert qu'à signaler un problème (accent CORAL) ; sinon le chiffre reste à l'encre.
 function KpiCard({ label, value, sub, accent }) {
   const alert = accent === CORAL;
   return (
     <div className="kpi" style={{ background: "#fff", padding: "20px 22px 18px" }}>
       <div style={{ fontSize: 13, color: MUTED }}>{label}</div>
-      <div className="kpi-value" style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 34, fontWeight: 500, lineHeight: 1.1, color: alert ? CORAL : INK, marginTop: 10, fontVariantNumeric: "lining-nums tabular-nums" }}>{value}</div>
+      <div className="kpi-value" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 29, fontWeight: 600, lineHeight: 1.1, color: alert ? CORAL : INK, marginTop: 10, fontVariantNumeric: "lining-nums tabular-nums" }}>{value}</div>
       {sub && <div style={{ fontSize: 12.5, color: MUTED, marginTop: 6 }}>{sub}</div>}
     </div>
   );
@@ -196,7 +196,7 @@ function SectionCard({ title, children, style, action }) {
   return (
     <div className="section-card" style={{ background: "#fff", borderRadius: 12, padding: "22px 24px", border: `1px solid ${SAND}`, ...style }}>
       <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 16 }}>
-        <h3 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 21, fontWeight: 500, color: INK, margin: 0, letterSpacing: "-0.01em" }}>{title}</h3>
+        <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 18, fontWeight: 600, color: INK, margin: 0, letterSpacing: "-0.01em" }}>{title}</h3>
         {action}
       </div>
       {children}
@@ -208,7 +208,7 @@ function BarRow({ label, value, max, color }) {
   return (
     <div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#5F7177", marginBottom: 4 }}>
-        <span>{label}</span><span style={{ fontFamily: "'Inter', sans-serif" }}>{value.toLocaleString("fr-FR")} €</span>
+        <span>{label}</span><span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{value.toLocaleString("fr-FR")} €</span>
       </div>
       <div style={{ height: 8, background: SAND, borderRadius: 20 }}>
         <div style={{ width: `${pct}%`, height: 8, background: color, borderRadius: 20 }} />
@@ -222,7 +222,7 @@ function Modal({ title, onClose, children }) {
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(14,47,58,0.5)", backdropFilter: "blur(2px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100 }}>
       <div className="modal-box" onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, padding: 28, width: 440, maxWidth: "calc(100vw - 32px)", maxHeight: "85vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(14,47,58,0.28)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <h3 style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18, color: NAVY_DEEP, margin: 0 }}>{title}</h3>
+          <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 18, color: NAVY_DEEP, margin: 0 }}>{title}</h3>
           <span onClick={onClose} style={{ cursor: "pointer", fontSize: 18, color: "#5F7177" }}>✕</span>
         </div>
         {children}
@@ -238,7 +238,7 @@ function Field({ label, children }) {
     </div>
   );
 }
-const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${SAND}`, background: "#fff", color: INK, fontSize: 13.5, fontFamily: "'Inter', sans-serif" };
+const inputStyle = { width: "100%", padding: "10px 12px", borderRadius: 8, border: `1px solid ${SAND}`, background: "#fff", color: INK, fontSize: 13.5, fontFamily: "'Plus Jakarta Sans', sans-serif" };
 const primaryBtn = { background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 8, padding: "11px 0", fontSize: 13.5, fontWeight: 500, cursor: "pointer", width: "100%" };
 const addBtn = { background: NAVY_DEEP, color: "#fff", border: "none", borderRadius: 8, padding: "9px 15px", fontSize: 13, fontWeight: 500, cursor: "pointer" };
 
@@ -431,7 +431,7 @@ function EditLeaseForm({ lease, properties, onSubmit, onDelete, submitting, docu
         onClick={() => { if (confirm("Supprimer définitivement ce bail ? Impossible si des paiements y sont rattachés — utilise plutôt le statut \"Résilié\" ci-dessus dans ce cas.")) onDelete(); }}>
         Supprimer le bail (définitif)
       </button>
-      <div style={{ fontSize: 11, color: "#5F7177", marginTop: 8, lineHeight: 1.4 }}>
+      <div style={{ fontSize: 12, color: "#5F7177", marginTop: 8, lineHeight: 1.4 }}>
         Pour clôturer un bail normalement, change son statut en "Résilié" et enregistre — l'historique des paiements reste conservé.
       </div>
       <DocumentsPanel documents={documents} uploading={uploadingDoc}
@@ -509,7 +509,7 @@ function PhotoAvatar({ url, name, size }) {
     return <img src={url} alt={name} style={{ width: size, height: size, borderRadius: "50%", objectFit: "cover" }} />;
   }
   return (
-    <div style={{ width: size, height: size, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bodoni Moda', serif", fontSize: size * 0.38, color: NAVY_DEEP, fontWeight: 600 }}>
+    <div style={{ width: size, height: size, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: size * 0.38, color: NAVY_DEEP, fontWeight: 600 }}>
       {initials}
     </div>
   );
@@ -521,7 +521,7 @@ function EmployeeCard({ employee, onEdit, onDelete }) {
       <div style={{ display: "flex", alignItems: "center", gap: 14, marginBottom: 20 }}>
         <PhotoAvatar url={employee.photo_url} name={employee.full_name} size={52} />
         <div>
-          <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18, color: NAVY_DEEP }}>{employee.full_name}</div>
+          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 18, color: NAVY_DEEP }}>{employee.full_name}</div>
           <div style={{ fontSize: 12.5, color: GOLD, fontWeight: 600 }}>{employee.role_title}</div>
         </div>
       </div>
@@ -550,7 +550,7 @@ function EmployeeCard({ employee, onEdit, onDelete }) {
           <div style={{ fontSize: 12, color: "#5F7177" }}>Statut</div>
           <div style={{ fontSize: 13.5, marginTop: 3 }}>
             <span style={{
-              fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+              fontSize: 12, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
               background: employee.status === "actif" ? "#E3EFEA" : "#F8EEDC",
               color: employee.status === "actif" ? SAGE : "#A86A0C"
             }}>{label(employeeStatusLabel, employee.status)}</span>
@@ -559,7 +559,7 @@ function EmployeeCard({ employee, onEdit, onDelete }) {
       </div>
       <div style={{ borderTop: `1px solid ${SAND}`, marginTop: 14, paddingTop: 14, marginBottom: 18 }}>
         <div style={{ fontSize: 12, color: "#5F7177" }}>Salaire brut mensuel</div>
-        <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 20, fontWeight: 600, color: NAVY_DEEP, marginTop: 4 }}>
+        <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 20, fontWeight: 600, color: NAVY_DEEP, marginTop: 4 }}>
           {Number(employee.monthly_gross_salary).toLocaleString("fr-FR")} €
         </div>
       </div>
@@ -587,11 +587,11 @@ function DocumentsPanel({ documents, onUpload, onView, onDelete, uploading }) {
         <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #E8EDEF" }}>
           <div>
             <div style={{ fontSize: 12.5, fontWeight: 500 }}>{d.name}</div>
-            <div style={{ fontSize: 10.5, color: "#5F7177" }}>{docTypeLabels[d.doc_type] || d.doc_type}</div>
+            <div style={{ fontSize: 12, color: "#5F7177" }}>{docTypeLabels[d.doc_type] || d.doc_type}</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <span onClick={() => onView(d)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>Voir</span>
-            <span onClick={() => onDelete(d)} style={{ fontSize: 11.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Supprimer</span>
+            <span onClick={() => onView(d)} style={{ fontSize: 12.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>Voir</span>
+            <span onClick={() => onDelete(d)} style={{ fontSize: 12.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Supprimer</span>
           </div>
         </div>
       ))}
@@ -792,11 +792,11 @@ const authLinkStyle = { fontSize: 12, color: NAVY, cursor: "pointer" };
 const AuthError = ({ children }) => children ? <div style={{ background: "#F7E4E5", color: CORAL, fontSize: 12.5, padding: "10px 12px", borderRadius: 8, marginBottom: 14, lineHeight: 1.45 }}>{children}</div> : null;
 const AuthInfo = ({ children }) => children ? <div style={{ background: "#E3EFEA", color: SAGE, fontSize: 12.5, padding: "10px 12px", borderRadius: 8, marginBottom: 14, lineHeight: 1.45 }}>{children}</div> : null;
 
-// Monogramme : « P » en Bodoni dans un cadre laiton, comme une plaque d'entrée d'immeuble
+// Monogramme : « P » dans un cadre laiton, comme une plaque d'entrée d'immeuble
 function Monogram({ size = 36, onDark = false }) {
   return (
     <div aria-hidden="true" style={{ width: size, height: size, borderRadius: 8, border: `1.5px solid ${GOLD}`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, background: onDark ? "rgba(176,141,87,0.08)" : "transparent" }}>
-      <span style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 500, color: onDark ? "#E2CFA8" : NAVY_DEEP, fontSize: size * 0.52, lineHeight: 1, marginTop: size * 0.04 }}>P</span>
+      <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, color: onDark ? "#E2CFA8" : NAVY_DEEP, fontSize: size * 0.52, lineHeight: 1, marginTop: size * 0.04 }}>P</span>
     </div>
   );
 }
@@ -807,10 +807,10 @@ function AuthCard({ children }) {
       <aside className="auth-panel" style={{ background: NAVY_DEEP, color: "#fff", padding: "48px 56px", display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
           <Monogram size={38} onDark />
-          <span style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 21, letterSpacing: "0.01em" }}>PropOS</span>
+          <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 18, letterSpacing: "0.01em" }}>PropOS</span>
         </div>
         <div className="auth-statement" style={{ maxWidth: 470 }}>
-          <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 400, fontSize: 44, lineHeight: 1.12, letterSpacing: "-0.015em", margin: 0 }}>
+          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 38, lineHeight: 1.12, letterSpacing: "-0.015em", margin: 0 }}>
             La gestion de vos résidences, du bail à la conciergerie.
           </h1>
           <p style={{ marginTop: 22, fontSize: 15.5, lineHeight: 1.6, color: "#B9C9CE", maxWidth: 400 }}>
@@ -824,7 +824,7 @@ function AuthCard({ children }) {
         <div className="auth-card" style={{ width: 400, maxWidth: "100%" }}>
           <div className="auth-brand-mobile" style={{ display: "none", alignItems: "center", gap: 10, marginBottom: 26 }}>
             <Monogram size={34} />
-            <span style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 19, color: INK }}>PropOS</span>
+            <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 16, color: INK }}>PropOS</span>
           </div>
           {children}
         </div>
@@ -857,7 +857,7 @@ function ResetPasswordScreen({ token, onDone, welcome }) {
 
   return (
     <AuthCard>
-      <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 30, lineHeight: 1.15, color: INK, marginBottom: 10 }}>{welcome ? "Bienvenue sur PropOS" : "Nouveau mot de passe"}</div>
+      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 26, lineHeight: 1.15, color: INK, marginBottom: 10 }}>{welcome ? "Bienvenue sur PropOS" : "Nouveau mot de passe"}</div>
       {welcome && <div style={{ fontSize: 12.5, color: INK, marginBottom: 8, lineHeight: 1.5 }}>Choisis le mot de passe de ton espace.</div>}
       <div style={{ fontSize: 12, color: "#5F7177", marginBottom: 16, lineHeight: 1.5 }}>
         Au moins 8 caractères, avec une minuscule, une majuscule et un chiffre.
@@ -949,7 +949,7 @@ function BillingPanel({ session, orgInfo, lots, returnStatus, suspended }) {
                 {busy === "checkout" ? "Ouverture…" : "S'abonner"}
               </button>
             )}
-            <div style={{ fontSize: 11.5, color: "#5F7177", marginTop: 10, lineHeight: 1.5 }}>
+            <div style={{ fontSize: 12.5, color: "#5F7177", marginTop: 10, lineHeight: 1.5 }}>
               Facturation mensuelle selon le nombre de lots, ajustée automatiquement chaque nuit. Paiement sécurisé par Stripe.
               {status === "trialing" && " Si tu t'abonnes pendant l'essai, le premier prélèvement n'a lieu qu'à sa fin."}
             </div>
@@ -984,7 +984,7 @@ function CreateAgencyScreen({ session, onCreated, onLogout }) {
 
   return (
     <AuthCard>
-      <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 30, lineHeight: 1.15, color: INK, marginBottom: 10 }}>Crée ton agence</div>
+      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 26, lineHeight: 1.15, color: INK, marginBottom: 10 }}>Crée ton agence</div>
       <div style={{ fontSize: 12.5, color: "#5F7177", marginBottom: 16, lineHeight: 1.5 }}>
         Ton compte n'est rattaché à aucune agence. Crée la tienne pour commencer : tu en seras la Direction,
         avec <b>30 jours d'essai gratuit</b>. Tu pourras ensuite inviter ton équipe.
@@ -997,7 +997,7 @@ function CreateAgencyScreen({ session, onCreated, onLogout }) {
       <button onClick={submit} disabled={saving || orgName.trim().length < 2 || !fullName.trim()} style={authBtnStyle}>
         {saving ? "Création…" : "Créer mon agence"}
       </button>
-      <div style={{ fontSize: 11.5, color: "#5F7177", marginTop: 16, lineHeight: 1.5, borderTop: `1px solid ${SAND}`, paddingTop: 12 }}>
+      <div style={{ fontSize: 12.5, color: "#5F7177", marginTop: 16, lineHeight: 1.5, borderTop: `1px solid ${SAND}`, paddingTop: 12 }}>
         Tu rejoins une agence existante ? Demande à sa Direction de t'inviter avec cette adresse email, puis reconnecte-toi.
       </div>
       <div style={{ textAlign: "center", marginTop: 12 }}>
@@ -1034,7 +1034,7 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
   if (view === "forgot") {
     return (
       <AuthCard>
-        <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 30, lineHeight: 1.15, color: INK, marginBottom: 10 }}>Mot de passe oublié</div>
+        <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 26, lineHeight: 1.15, color: INK, marginBottom: 10 }}>Mot de passe oublié</div>
         {resetState.sent ? (
           <>
             <AuthInfo>
@@ -1065,7 +1065,7 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
 
   return (
     <AuthCard>
-        <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 30, lineHeight: 1.15, color: INK, marginBottom: 18 }}>
+        <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 26, lineHeight: 1.15, color: INK, marginBottom: 18 }}>
           {view === "signup" ? (newAgency ? "Essayer PropOS" : "Créer mon accès") : "Se connecter"}
         </div>
         <div role="tablist" style={{ display: "flex", gap: 4, background: "#E3E9EB", borderRadius: 10, padding: 4, marginBottom: 22 }}>
@@ -1103,7 +1103,7 @@ function LoginScreen({ onLogin, error, loading, onTenantSignup, onStaffSignup, s
             <input value={email} onChange={e => setEmail(e.target.value)} type="email" autoComplete="email" style={authInputStyle} />
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
               <label style={{ fontSize: 13, fontWeight: 500, color: INK }}>Mot de passe</label>
-              <span onClick={() => setView("forgot")} style={{ ...authLinkStyle, fontSize: 11.5 }}>Mot de passe oublié ?</span>
+              <span onClick={() => setView("forgot")} style={{ ...authLinkStyle, fontSize: 12.5 }}>Mot de passe oublié ?</span>
             </div>
             <PasswordInput value={password} onChange={e => setPassword(e.target.value)} autoComplete="current-password" />
             <AuthError>{error}</AuthError>
@@ -1181,7 +1181,7 @@ function TenantPortal({ session, tenant, onLogout }) {
       <div className="tenant-head" style={{ background: NAVY_DEEP, padding: "16px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Monogram size={32} onDark />
-          <div style={{ color: "#fff", fontFamily: "'Bodoni Moda', serif", fontSize: 17 }}>Mon espace locataire</div>
+          <div style={{ color: "#fff", fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 17 }}>Mon espace locataire</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <span style={{ color: "#D5E1E4", fontSize: 13 }}>{tenant.full_name}</span>
@@ -1202,12 +1202,12 @@ function TenantPortal({ session, tenant, onLogout }) {
         {activeLease && (
           <>
             <SectionCard title="Mon logement" style={{ marginBottom: 18 }}>
-              <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 17, color: NAVY_DEEP }}>{activeLease.properties?.name}</div>
+              <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 17, color: NAVY_DEEP }}>{activeLease.properties?.name}</div>
               <div style={{ fontSize: 12.5, color: "#5F7177", marginTop: 4 }}>{activeLease.properties?.address}</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 24, marginTop: 14, paddingTop: 14, borderTop: `1px solid #E3E9EB` }}>
                 <div>
                   <div style={{ fontSize: 12, color: "#5F7177" }}>Loyer mensuel</div>
-                  <div style={{ fontFamily: "'Inter', sans-serif", fontSize: 17, fontWeight: 600, color: NAVY_DEEP }}>{Number(activeLease.rent).toLocaleString("fr-FR")} €</div>
+                  <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 17, fontWeight: 600, color: NAVY_DEEP }}>{Number(activeLease.rent).toLocaleString("fr-FR")} €</div>
                 </div>
                 <div>
                   <div style={{ fontSize: 12, color: "#5F7177" }}>Début du bail</div>
@@ -1228,10 +1228,10 @@ function TenantPortal({ session, tenant, onLogout }) {
                   {data.payments.map(p => (
                     <tr key={p.id}>
                       <td style={{ fontSize: 12.5 }}>{formatDate(p.due_date)}</td>
-                      <td style={{ fontFamily: "'Inter', sans-serif" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                      <td style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
                       <td>
                         <span style={{
-                          fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
+                          fontSize: 12, fontWeight: 600, padding: "3px 9px", borderRadius: 20,
                           background: isPaid(p) ? "#E3EFEA" : isOverdue(p) ? "#F7E4E5" : "#F8EEDC",
                           color: isPaid(p) ? SAGE : isOverdue(p) ? CORAL : "#A86A0C",
                         }}>{paymentStatusLabel(p)}</span>
@@ -1248,9 +1248,9 @@ function TenantPortal({ session, tenant, onLogout }) {
                 <div key={d.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid #E8EDEF" }}>
                   <div>
                     <div style={{ fontSize: 12.5, fontWeight: 500 }}>{d.name}</div>
-                    <div style={{ fontSize: 10.5, color: "#5F7177" }}>{docTypeLabels[d.doc_type] || d.doc_type}</div>
+                    <div style={{ fontSize: 12, color: "#5F7177" }}>{docTypeLabels[d.doc_type] || d.doc_type}</div>
                   </div>
-                  <span onClick={() => viewDoc(d)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>Voir</span>
+                  <span onClick={() => viewDoc(d)} style={{ fontSize: 12.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>Voir</span>
                 </div>
               ))}
             </SectionCard>
@@ -1280,9 +1280,9 @@ function TenantPortal({ session, tenant, onLogout }) {
                     <div key={t.id} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderBottom: "1px solid #E8EDEF" }}>
                       <div style={{ fontSize: 12.5 }}>
                         <b style={{ fontWeight: 500 }}>{label(ticketCategoryLabel, t.category)}</b> — {t.description}
-                        <div style={{ fontSize: 11, color: "#5F7177", marginTop: 2 }}>Signalé le {formatDate(t.created_at)}{t.resolved_at ? ` · résolu le ${formatDate(t.resolved_at)}` : ""}</div>
+                        <div style={{ fontSize: 12, color: "#5F7177", marginTop: 2 }}>Signalé le {formatDate(t.created_at)}{t.resolved_at ? ` · résolu le ${formatDate(t.resolved_at)}` : ""}</div>
                       </div>
-                      <span style={{ fontSize: 11, fontWeight: 600, color: ticketStatusColor[t.status] || CORAL, whiteSpace: "nowrap" }}>{label(ticketStatusLabel, t.status)}</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: ticketStatusColor[t.status] || CORAL, whiteSpace: "nowrap" }}>{label(ticketStatusLabel, t.status)}</span>
                     </div>
                   ))}
                 </div>
@@ -1849,7 +1849,7 @@ function App() {
   if (session && tenantProfile) return <TenantPortal session={session} tenant={tenantProfile} onLogout={handleLogout} />;
   if (session && profile && accessSuspended && profile.role !== "direction") return (
     <AuthCard>
-      <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 18, color: NAVY_DEEP, marginBottom: 8 }}>Accès suspendu</div>
+      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 18, color: NAVY_DEEP, marginBottom: 8 }}>Accès suspendu</div>
       <div style={{ fontSize: 13, color: "#5F7177", lineHeight: 1.55, marginBottom: 18 }}>
         L'abonnement de {orgName || "ton agence"} n'est plus actif. Les données sont conservées : contacte ta Direction pour réactiver l'accès.
       </div>
@@ -1869,8 +1869,8 @@ function App() {
         <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "4px 6px 26px" }}>
           <Monogram size={36} onDark />
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 16.5, lineHeight: 1.2, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={orgName}>{orgName || "PropOS"}</div>
-            <div style={{ fontSize: 11.5, color: "#8FA7AE", marginTop: 2 }}>PropOS</div>
+            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 16.5, lineHeight: 1.2, maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={orgName}>{orgName || "PropOS"}</div>
+            <div style={{ fontSize: 12.5, color: "#8FA7AE", marginTop: 2 }}>PropOS</div>
           </div>
         </div>
         <nav>
@@ -1882,18 +1882,18 @@ function App() {
               <div key={item.key} className={allowed ? "navitem" : ""} onClick={() => { if (allowed) { setTab(item.key); setMenuOpen(false); } }}
                 style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", borderRadius: 8, marginBottom: 2, background: active ? "rgba(176,141,87,0.14)" : "transparent", boxShadow: active ? `inset 2px 0 0 ${GOLD}` : "none", opacity: allowed ? 1 : 0.4, cursor: allowed ? "pointer" : "not-allowed" }}>
                 <span style={{ fontSize: 14, fontWeight: active ? 500 : 400, color: active ? "#E9D7B4" : "#B9C9CE" }}>{item.label}</span>
-                {!allowed && <span style={{ fontSize: 11 }}>🔒</span>}
+                {!allowed && <span style={{ fontSize: 12 }}>🔒</span>}
               </div>
             );
           })}
         </nav>
         <div style={{ marginTop: "auto", borderTop: "1px solid rgba(255,255,255,0.1)", paddingTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ width: 30, height: 30, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Bodoni Moda', serif", fontSize: 12.5, color: NAVY_DEEP, fontWeight: 600 }}>
+          <div style={{ width: 30, height: 30, borderRadius: "50%", background: GOLD, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12.5, color: NAVY_DEEP, fontWeight: 600 }}>
             {(profile.full_name || "?").split(" ").map(n => n[0]).join("").slice(0, 2)}
           </div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 12.5 }}>{profile.full_name}</div>
-            <div style={{ fontSize: 10.5, color: "#8FA7AE" }}>{roles[profile.role]}</div>
+            <div style={{ fontSize: 12, color: "#8FA7AE" }}>{roles[profile.role]}</div>
           </div>
           <span style={{ cursor: "pointer", fontSize: 12 }} onClick={handleLogout}>Quitter</span>
         </div>
@@ -1903,7 +1903,7 @@ function App() {
         <div className="topbar" style={{ background: IVORY, padding: "28px 40px 6px", display: "flex", alignItems: "center", gap: 12 }}>
           <button className="menu-btn" onClick={() => setMenuOpen(true)} aria-label="Ouvrir le menu"
             style={{ display: "none", background: "none", border: "none", fontSize: 22, color: NAVY_DEEP, cursor: "pointer", padding: 0, lineHeight: 1 }}>☰</button>
-          <h1 style={{ fontFamily: "'Bodoni Moda', serif", fontWeight: 400, fontSize: 30, letterSpacing: "-0.015em", color: INK, margin: 0 }}>{NAV.find(n => n.key === tab)?.label}</h1>
+          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 26, letterSpacing: "-0.015em", color: INK, margin: 0 }}>{NAV.find(n => n.key === tab)?.label}</h1>
         </div>
         <div className="content" style={{ padding: "20px 40px 56px" }}>
           {dataError && <div style={{ background: "#F7E4E5", color: CORAL, padding: "12px 16px", borderRadius: 4, marginBottom: 20, fontSize: 13 }}>{dataError}</div>}
@@ -1936,7 +1936,7 @@ function App() {
                 return (
                   <section style={{ margin: "4px 0 28px", maxWidth: 860 }}>
                     <div style={{ fontSize: 13.5, color: MUTED, marginBottom: 10 }}>{today.charAt(0).toUpperCase() + today.slice(1)}</div>
-                    <p className="today" style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 34, lineHeight: 1.25, color: INK, letterSpacing: "-0.01em" }}>
+                    <p className="today" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 500, fontSize: 29, lineHeight: 1.25, color: INK, letterSpacing: "-0.01em" }}>
                       Bonjour {firstName}.{" "}
                       {kpis.total === 0 ? "Ton agence est prête : commence par ajouter tes biens." :
                         reachable.length === 0 ? "Rien n'attend de réponse aujourd'hui." : (
@@ -1982,7 +1982,7 @@ function App() {
                         <span style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 600, background: step.done ? SAGE : IVORY, color: step.done ? "#fff" : NAVY_DEEP }}>{step.done ? "✓" : step.n}</span>
                         <div>
                           <div style={{ fontSize: 13.5, fontWeight: 500 }}>{step.label}</div>
-                          <div style={{ fontSize: 11.5, color: "#5F7177" }}>{step.hint}</div>
+                          <div style={{ fontSize: 12.5, color: "#5F7177" }}>{step.hint}</div>
                         </div>
                       </div>
                       <button style={addBtn} onClick={() => { setTab(step.tab); if (step.tab === "hr") { setHrTab("invites"); setInviteModal(true); } else if (step.modal) setModal(step.modal); }}>
@@ -2009,22 +2009,22 @@ function App() {
                     <div key={b.id} style={{ background: "#fff", border: `1px solid ${SAND}`, borderRadius: 12 }}>
                       <div style={{ padding: "20px 22px" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
-                          <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 23, lineHeight: 1.2, color: INK }}>{b.name}</div>
+                          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 20, lineHeight: 1.2, color: INK }}>{b.name}</div>
                           <button onClick={() => setEditingBuilding(b)} style={{ background: "none", border: `1px solid ${SAND}`, borderRadius: 8, padding: "5px 11px", fontSize: 12.5, color: NAVY, cursor: "pointer", flexShrink: 0 }}>Modifier</button>
                         </div>
                         <div style={{ fontSize: 12.5, color: MUTED, marginTop: 4 }}>{b.address}</div>
                         {b.description && <div style={{ fontSize: 12, color: "#5F7177", marginTop: 8, fontStyle: "italic" }}>{b.description}</div>}
                         <div style={{ display: "flex", gap: 28, marginTop: 16, paddingTop: 16, borderTop: `1px solid #E3E9EB` }}>
                           <div>
-                            <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 24, color: INK }}>{units.length}</div>
+                            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 21, color: INK }}>{units.length}</div>
                             <div style={{ fontSize: 12, color: MUTED }}>Lots</div>
                           </div>
                           <div>
-                            <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 24, color: INK }}>{units.length ? Math.round((occupied / units.length) * 100) : 0} %</div>
+                            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 21, color: INK }}>{units.length ? Math.round((occupied / units.length) * 100) : 0} %</div>
                             <div style={{ fontSize: 12, color: MUTED }}>Occupation</div>
                           </div>
                           <div>
-                            <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 24, color: INK }}>{totalRent.toLocaleString("fr-FR")} €</div>
+                            <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 21, color: INK }}>{totalRent.toLocaleString("fr-FR")} €</div>
                             <div style={{ fontSize: 12, color: MUTED }}>Loyers mensuels</div>
                           </div>
                         </div>
@@ -2036,7 +2036,7 @@ function App() {
                                   <span style={{ width: 7, height: 7, borderRadius: "50%", background: statusColor[u.status], display: "inline-block" }} />
                                   {u.name}
                                 </span>
-                                <span style={{ fontFamily: "'Inter', sans-serif", color: "#5F7177" }}>{Number(u.rent).toLocaleString("fr-FR")} €</span>
+                                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#5F7177" }}>{Number(u.rent).toLocaleString("fr-FR")} €</span>
                               </div>
                             ))}
                           </div>
@@ -2071,13 +2071,13 @@ function App() {
                     style={{ textAlign: "left", font: "inherit", color: INK, background: "#fff", border: `1px solid ${SAND}`, borderRadius: 12, padding: "16px 18px 18px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 4 }}>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, width: "100%" }}>
                       <span style={{ fontSize: 12, color: MUTED }}>{p.reference}</span>
-                      <span style={{ fontSize: 11.5, fontWeight: 600, padding: "3px 9px", borderRadius: 999, color: statusColor[p.status], background: statusBg[p.status] }}>{statusLabel[p.status]}</span>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, padding: "3px 9px", borderRadius: 999, color: statusColor[p.status], background: statusBg[p.status] }}>{statusLabel[p.status]}</span>
                     </div>
-                    <div style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 20, lineHeight: 1.2, marginTop: 8 }}>{p.name}</div>
+                    <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 17, lineHeight: 1.2, marginTop: 8 }}>{p.name}</div>
                     <div style={{ fontSize: 12.5, color: MUTED }}>{[p.buildings?.name, p.address].filter(Boolean).join(", ")}</div>
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 14, paddingTop: 12, borderTop: "1px solid #E3E9EB", width: "100%" }}>
                       <span style={{ fontSize: 12.5, color: MUTED }}>{[p.surface && `${p.surface} m²`, p.pieces && `${p.pieces} pièce${p.pieces > 1 ? "s" : ""}`].filter(Boolean).join(", ")}</span>
-                      <span><span style={{ fontFamily: "'Bodoni Moda', serif", fontSize: 19 }}>{Number(p.rent).toLocaleString("fr-FR")} €</span><span style={{ fontSize: 11.5, color: MUTED }}> / mois</span></span>
+                      <span><span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: 16 }}>{Number(p.rent).toLocaleString("fr-FR")} €</span><span style={{ fontSize: 12.5, color: MUTED }}> / mois</span></span>
                     </div>
                   </button>
                 ))}
@@ -2109,9 +2109,9 @@ function App() {
                 <tbody>
                   {data.leases.map(l => (
                     <tr key={l.id}>
-                      <td>{l.tenants?.full_name}<div style={{ fontSize: 11, color: "#5F7177" }}>{l.tenants?.email}</div></td>
+                      <td>{l.tenants?.full_name}<div style={{ fontSize: 12, color: "#5F7177" }}>{l.tenants?.email}</div></td>
                       <td>{l.properties?.name} — {l.properties?.address}</td>
-                      <td style={{ fontFamily: "'Inter', sans-serif" }}>{Number(l.rent).toLocaleString("fr-FR")} €</td>
+                      <td style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{Number(l.rent).toLocaleString("fr-FR")} €</td>
                       <td>{label(leaseStatusLabel, l.status)}</td>
                       <td style={{ whiteSpace: "nowrap" }}>
                         <span onClick={() => setEditingTenant(l.tenants ? { ...l.tenants, id: l.tenant_id } : { id: l.tenant_id, full_name: "", email: "", phone: "" })}
@@ -2175,15 +2175,15 @@ function App() {
                               <td>{p.leases?.tenants?.full_name || "—"}</td>
                               <td>{p.leases?.properties?.name || "—"}</td>
                               <td style={{ fontSize: 12.5, color: "#5F7177" }}>{formatDate(p.due_date)}</td>
-                              <td style={{ fontFamily: "'Inter', sans-serif", fontWeight: 600 }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                              <td style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
                               <td>
-                                <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: late ? "#F7E4E5" : "#F8EEDC", color: late ? CORAL : "#A86A0C" }}>
+                                <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 9px", borderRadius: 20, background: late ? "#F7E4E5" : "#F8EEDC", color: late ? CORAL : "#A86A0C" }}>
                                   {late ? "En retard" : "À venir"}
                                 </span>
                               </td>
                               <td>
                                 <button disabled={submitting} onClick={() => markPaymentPaid(p.id)}
-                                  style={{ background: SAGE, color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                                  style={{ background: SAGE, color: "#fff", border: "none", borderRadius: 3, padding: "6px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
                                   ✓ Marquer reçu
                                 </button>
                               </td>
@@ -2214,7 +2214,7 @@ function App() {
                             <td>{p.leases?.properties?.name || "—"}</td>
                             <td style={{ fontSize: 12.5, color: "#5F7177" }}>{formatDate(p.due_date)}</td>
                             <td style={{ fontSize: 12.5, color: "#5F7177" }}>{formatDate(p.paid_date || p.due_date)}</td>
-                            <td style={{ fontFamily: "'Inter', sans-serif" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
+                            <td style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{Number(p.amount).toLocaleString("fr-FR")} €</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2236,7 +2236,7 @@ function App() {
             const tickets = data.maintenance
               .filter(t => ticketFilter === "all" || (ticketFilter === "resolu" ? t.status === "resolu" : t.status !== "resolu"))
               .sort((a, b) => (priorityRank[a.priority] ?? 9) - (priorityRank[b.priority] ?? 9) || String(b.created_at).localeCompare(String(a.created_at)));
-            const smallBtn = (bg, color) => ({ background: bg, color, border: "none", borderRadius: 3, padding: "6px 11px", fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" });
+            const smallBtn = (bg, color) => ({ background: bg, color, border: "none", borderRadius: 3, padding: "6px 11px", fontSize: 12.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" });
             return (
               <SectionCard title="Tickets de maintenance" action={
                 <ExportButtons
@@ -2262,14 +2262,14 @@ function App() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 500, fontSize: 13.5 }}>{label(ticketCategoryLabel, t.category)} — {t.properties?.name || "—"}</div>
                         {t.description && <div style={{ fontSize: 12.5, color: INK, marginTop: 4, lineHeight: 1.45 }}>{t.description}</div>}
-                        <div style={{ fontSize: 11.5, color: "#5F7177", marginTop: 5 }}>
+                        <div style={{ fontSize: 12.5, color: "#5F7177", marginTop: 5 }}>
                           Priorité : <span style={{ color: ticketPriorityColor[t.priority], fontWeight: 600 }}>{label(ticketPriorityLabel, t.priority)}</span>
                           {" · "}Signalé le {formatDate(t.created_at)}{t.reported_by_tenant_id ? " par le locataire" : ""}
                           {t.resolved_at && ` · Résolu le ${formatDate(t.resolved_at)}`}
                         </div>
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 8 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, padding: "3px 9px", borderRadius: 20, color: ticketStatusColor[t.status] || CORAL, background: t.status === "resolu" ? "#E3EFEA" : t.status === "en_cours" ? "#F8EEDC" : "#F7E4E5" }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 9px", borderRadius: 20, color: ticketStatusColor[t.status] || CORAL, background: t.status === "resolu" ? "#E3EFEA" : t.status === "en_cours" ? "#F8EEDC" : "#F7E4E5" }}>
                           {label(ticketStatusLabel, t.status)}
                         </span>
                         <div style={{ display: "flex", gap: 6 }}>
@@ -2340,11 +2340,11 @@ function App() {
                                     <PhotoAvatar url={e.photo_url} name={e.full_name} size={32} />
                                     <div>
                                       <div style={{ fontSize: 13, fontWeight: 500 }}>{e.full_name}</div>
-                                      <div style={{ fontSize: 11, color: "#5F7177" }}>{e.email}</div>
+                                      <div style={{ fontSize: 12, color: "#5F7177" }}>{e.email}</div>
                                     </div>
                                   </div>
                                   <span style={{
-                                    fontSize: 10.5, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
+                                    fontSize: 12, fontWeight: 600, padding: "3px 8px", borderRadius: 20,
                                     background: e.status === "actif" ? "#E3EFEA" : "#F8EEDC",
                                     color: e.status === "actif" ? SAGE : "#A86A0C"
                                   }}>{label(employeeStatusLabel, e.status)}</span>
@@ -2374,11 +2374,11 @@ function App() {
                       <tbody>
                         {data.payslips.map(p => (
                           <tr key={p.id}><td>{p.employees?.full_name}</td><td>{p.period}</td>
-                            <td style={{ fontFamily: "'Inter', sans-serif" }}>{Number(p.gross_amount).toLocaleString("fr-FR")} €</td>
-                            <td style={{ fontFamily: "'Inter', sans-serif" }}>{Number(p.net_amount).toLocaleString("fr-FR")} €</td>
+                            <td style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{Number(p.gross_amount).toLocaleString("fr-FR")} €</td>
+                            <td style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{Number(p.net_amount).toLocaleString("fr-FR")} €</td>
                             <td>{p.status}</td>
                             <td>
-                              <span onClick={() => viewPayslip(p)} style={{ fontSize: 11.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>
+                              <span onClick={() => viewPayslip(p)} style={{ fontSize: 12.5, color: NAVY, cursor: "pointer", fontWeight: 500 }}>
                                 {p.pdf_path ? "Voir le bulletin" : "Récapitulatif"}
                               </span>
                             </td>
@@ -2395,14 +2395,14 @@ function App() {
                     <div key={l.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid #E3E9EB" }}>
                       <div>
                         <div style={{ fontSize: 13.5, fontWeight: 500 }}>{l.employees?.full_name} — {l.leave_type}</div>
-                        <div style={{ fontSize: 11.5, color: "#5F7177" }}>Du {formatDate(l.start_date)} au {formatDate(l.end_date)}, {l.days} jour{l.days > 1 ? "s" : ""}</div>
+                        <div style={{ fontSize: 12.5, color: "#5F7177" }}>Du {formatDate(l.start_date)} au {formatDate(l.end_date)}, {l.days} jour{l.days > 1 ? "s" : ""}</div>
                       </div>
                       {l.status === "en_attente" ? (
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => approveLeave(l.id, "approuve")} style={{ background: "#E3EFEA", border: "none", color: SAGE, borderRadius: 3, width: 28, height: 28, cursor: "pointer" }}>✓</button>
                           <button onClick={() => approveLeave(l.id, "refuse")} style={{ background: "#F7E4E5", border: "none", color: CORAL, borderRadius: 3, width: 28, height: 28, cursor: "pointer" }}>✕</button>
                         </div>
-                      ) : <span style={{ fontSize: 11, fontWeight: 600, color: l.status === "approuve" ? SAGE : CORAL }}>{label(leaveStatusLabel, l.status)}</span>}
+                      ) : <span style={{ fontSize: 12, fontWeight: 600, color: l.status === "approuve" ? SAGE : CORAL }}>{label(leaveStatusLabel, l.status)}</span>}
                     </div>
                   ))}
                 </SectionCard>
@@ -2418,8 +2418,8 @@ function App() {
                         <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                           <PhotoAvatar name={m.full_name} size={32} />
                           <div style={{ minWidth: 0 }}>
-                            <div style={{ fontSize: 13.5, fontWeight: 500 }}>{m.full_name}{isMe && <span style={{ fontSize: 11, color: "#5F7177", fontWeight: 400 }}> (toi)</span>}</div>
-                            <div style={{ fontSize: 11.5, color: "#5F7177" }}>{m.email || "—"}</div>
+                            <div style={{ fontSize: 13.5, fontWeight: 500 }}>{m.full_name}{isMe && <span style={{ fontSize: 12, color: "#5F7177", fontWeight: 400 }}> (toi)</span>}</div>
+                            <div style={{ fontSize: 12.5, color: "#5F7177" }}>{m.email || "—"}</div>
                           </div>
                         </div>
                         {isMe ? (
@@ -2431,7 +2431,7 @@ function App() {
                               {Object.entries(roles).map(([key, lbl]) => <option key={key} value={key}>{lbl}</option>)}
                             </select>
                             <span onClick={() => !busy && removeMember(m)}
-                              style={{ fontSize: 11.5, color: CORAL, cursor: busy ? "wait" : "pointer", fontWeight: 500, whiteSpace: "nowrap" }}>Retirer l'accès</span>
+                              style={{ fontSize: 12.5, color: CORAL, cursor: busy ? "wait" : "pointer", fontWeight: 500, whiteSpace: "nowrap" }}>Retirer l'accès</span>
                           </div>
                         )}
                       </div>
@@ -2448,13 +2448,13 @@ function App() {
                     <div key={i.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #E3E9EB" }}>
                       <div>
                         <div style={{ fontSize: 13.5, fontWeight: 500 }}>{i.full_name || i.email}</div>
-                        <div style={{ fontSize: 11.5, color: "#5F7177" }}>{i.email} · {roles[i.role] || i.role}</div>
+                        <div style={{ fontSize: 12.5, color: "#5F7177" }}>{i.email} · {roles[i.role] || i.role}</div>
                       </div>
                       <span onClick={() => { if (confirm(`Annuler l'invitation de ${i.email} ?`)) revokeStaffInvite(i.id); }}
-                        style={{ fontSize: 11.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Révoquer</span>
+                        style={{ fontSize: 12.5, color: CORAL, cursor: "pointer", fontWeight: 500 }}>Révoquer</span>
                     </div>
                   ))}
-                  <div style={{ fontSize: 11.5, color: "#5F7177", marginTop: 12, lineHeight: 1.5 }}>
+                  <div style={{ fontSize: 12.5, color: "#5F7177", marginTop: 12, lineHeight: 1.5 }}>
                     Pour modifier une invitation (email ou rôle), révoque-la puis renvoie-en une nouvelle.
                   </div>
                 </SectionCard>
